@@ -186,7 +186,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - v1.1 2026-11-06 07:33 UTC: main-agent pass — checkpoint tolerances table, kernel/DevicePolicy table, config schemas, trait sketches, repo live at Velmet44/lifesim. Background reviews running.
 - (append entries below as refinements land)
 
-## 16. Checkpoint Table v1.1 (quantitative, to be tightened by validation reviewer)
+## 16. Checkpoint Table (see §8 canonical; legacy v1.1 table kept for traceability — validation reviewer T1 supersedes tolerances/weights)
 | Epoch | Observable | Control-run target | Tolerance (initial) | Gate blocks |
 |---|---|---|---|---|
 | 4.54 Ga | accretion energy / magma ocean onset | Tm>1800K global | ±200K | M1 |
