@@ -163,16 +163,16 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Targets at L2, mid quad-core CPU-only (to be replaced by perf/ actuals): deep-time >=1 Myr/wall-s at dt=1kyr with erosion 1:10 (PASS ~2.5 Myr/s typical); climate >=10 sim-yr/wall-s at DAILY dt with EMBM/dynamics-lite (6-hourly only High/GPU preset; 6-hourly FAILS ~4x CPU-only); twin year <5 wall-s daily. GPU 2-5x only fused resident high-ALU kernels; Laplacians ~1.2-2x L2. Staging <=10% step. Measure on reference quad-core before freezing.
 
 ## 13. Milestones & Exit Gates
-- M0 scaffold+globe spike: globe renders flat field; reruns bit-identical.
-- M1 solar+formation: Hadean cooling plausible; orbit cycles correct.
-- M2 tectonics v1: continents vs paleomaps qualitative; hypsometry sane.
-- M3 atmos-ocean-ice: glacial cycles emerge; 2×CO2 sensitivity 2–4.5K.
-- M4 geochem+events: GOE emerges in control; Snowball reachable.
-- M5 bio: abiogenesis 4.0–3.5Ga window; Cambrian-like radiation.
-- M6 eco/extinctions: K-Pg analog → matching collapse.
-- M7 data+calibration+twin init: warm start matches present; 20-yr ensemble sane.
-- M8 civs+deep-future: 1900–2025 repro; 1-Gyr run stable.
-- M9 polish: L3 grid, nested regional climate, NetCDF, plugin API.
+- M0 scaffold+globe spike: Path-B globe ≥2fps L0 CPU-only + golden screenshot; CpuOnly rerun hash-equal; single wgpu version. CI: determinism-smoke.
+- M1 solar+formation: Hadean Ts 400–900K post-solidification, oceans >30% cells by 4.3Ga; orbit periods ±1% vs Berger/Laskar. CI: check --epoch F1/F2/F3.
+- M2 tectonics v1: hypsometry bimodal ±15%, monotonic crustal growth; paleomap overlay qualitative review. CI: hypsometry artifact.
+- M3 atmos-ocean-ice: Quaternary 41kyr/100kyr cyclicity; ECS 2.0–4.5K range gate. CI: check --epoch I1/P1.
+- M4 geochem+events: GOE window ±150Myr + log±0.7 in control; Snowball reachable in perturbed ensemble. CI: check G1/G2 (cal/val split).
+- M5 bio: abiogenesis 4.0–3.5Ga in control; Cambrian 5–20× richness spike. CI: check B1/B2.
+- M6 eco/extinctions: LIP → marine -70–-95%; 10km impactor → -50–-80% + recovery e-fold <5Myr. CI: check E1/E2.
+- M7 data+calibration+twin init: warm start within T2 present-day tols; T3 20-yr sanity green (bias/trend/RMSE/conservation/coverage). Blocks M8. CI: H-c holdout.
+- M8 civs+deep-future: T2 1900–2025 repro (CO2 ±4ppm, ΔT ±0.15K); 1-Gyr stability no-crash. CI: check A2 + long soak.
+- M9 polish: L3 Real preset, nested regional climate, NetCDF (feature), plugin API, perf trend published.
 
 ## 14. Risks
 1. GPUI×wgpu embedding — spike early, fallback ready.
