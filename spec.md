@@ -1,6 +1,6 @@
-# LifeSim / Earth Simulator — Specification v1.0
-**Status:** DRAFT — iterative improvement in progress
-**Started:** 2026-11-06 07:27 UTC (target: ≥2h refinement loop)
+# LifeSim / Earth Simulator — Specification v1.1
+**Status:** DRAFT — iterative improvement in progress (background reviewers: science/arch/compute/validation/gpui)
+**Started:** 2026-11-06 07:27 UTC (target: ≥2h refinement loop, end ≥09:27 UTC) | **Repo:** https://github.com/Velmet44/lifesim (public, commit regularly)
 **Stack:** Rust + GPUI + wgpu | **Default grid:** 10,242 cells (icosphere) | **Purpose:** research-cum-prediction
 
 ## 1. Vision & Purpose
@@ -175,7 +175,84 @@ trait Kernel { fn name()->&str; fn cpu(&self, ctx)->Result<()>; fn gpu_wgsl()->O
 
 ## 15. Improvement Log
 - v1.0 2026-11-06 07:27 UTC: initial comprehensive draft. Refinement subagents launched.
+- v1.1 2026-11-06 07:33 UTC: main-agent pass — checkpoint tolerances table, kernel/DevicePolicy table, config schemas, trait sketches, repo live at Velmet44/lifesim. Background reviews running.
 - (append entries below as refinements land)
+
+## 16. Checkpoint Table v1.1 (quantitative, to be tightened by validation reviewer)
+| Epoch | Observable | Control-run target | Tolerance (initial) | Gate blocks |
+|---|---|---|---|---|
+| 4.54 Ga | accretion energy / magma ocean onset | Tm>1800K global | ±200K | M1 |
+| 4.43 Ga | solidification | crust present, Ts<800K | Ts 400–900K | M1 |
+| 4.30 Ga | oceans | liquid water fraction >30% cells 273–373K | ±15pp | M1 |
+| 3.50 Ga | life present | abiogenesis done, microbial biomass>0 | binary | M5 |
+| 2.40 Ga | GOE | pO2 rise 1e-5→1e-3 PAL order | log ±1 | M4 |
+| 720–635 Ma | Snowball reachable | ice_frac>80% in perturbed ensemble | binary reachability | M4 |
+| 538 Ma | Cambrian radiation | richness 5–20× pre-edge | factor 2 | M5 |
+| 252 Ma | P-T crash | marine biomass -70–-95% under LIP forcing | ±15pp | M6 |
+| 66 Ma | K-Pg | biomass -50–-80% under 10km impactor | ±15pp | M6 |
+| 20 ka | LGM ice | land-ice extent 1.5–2.5× preind (N.Hemi) | ±30% | M3 |
+| 1750 | preindustrial | 280ppm CO2, ΔT=0 baseline | ±10ppm | M7 |
+| 2025 | present | ~420ppm, ΔT ~+1.1–1.3K vs 1850–1900 | CO2 ±5ppm, T ±0.2K | M7/M8 |
+| 2×CO2 | ECS diagnostic | 2.0–4.5K | range gate | M3 |
+
+Scoring: weighted RMSE in normalized units; control-run = min score over LHS ensemble (n≥64 deep-time-lite, n≥20 twin). Publish `control-run.toml` + seed + hash.
+
+## 17. Kernel & DevicePolicy v1.1
+| Kernel | Grid op | CPU strat | GPU candidate | Precision |
+|---|---|---|---|---|
+| atmos_dyn (advect/vort) | stencil 1-ring | rayon chunks | YES wgpu primary | f32 |
+| atmos_rad (band) | pointwise | rayon+SIMD | YES (embarrassingly parallel) | f32 |
+| ocean_advect/diffuse | stencil | rayon | YES | f32 |
+| ice_thermo | pointwise | rayon | no (branchy, stay CPU) | f32 |
+| mantle_diffuse | stencil/1-D | rayon | YES | f32 |
+| plate_rotate | rigid mat | serial CPU | no | f64 accum, f32 store |
+| erosion/stream-power | stencil+flow | rayon | MAYBE (needs prefix/flow routing → CPU first) | f32 |
+| weathering/geochem box | reductions | serial/rayon reduce fixed-order | no | f64 accum |
+| bio/eco per-cell | pointwise+neighbor disperse | rayon | MAYBE phase 2 | f32 + u32 ids |
+| civ agents | sparse agents | serial CPU | no | f32/f64 mix |
+
+```rust
+#[derive(Clone,Copy)] pub enum DevicePolicy { Auto, CpuOnly, GpuPreferred, Hybrid }
+pub trait Kernel {
+  fn name(&self)->&'static str;
+  fn run_cpu(&self, g:&GridViewMut, p:&Params)->Result<Diagnostics>;
+  fn wgsl(&self)->Option<&'static str>; // None = CPU-only
+  fn supports_gpu(&self)->bool { self.wgsl().is_some() }
+}
+pub struct Scheduler { policy: DevicePolicy, staging_budget_mb: usize }
+// Auto: probe adapter; if none → CpuOnly. Hybrid: GPU for stencil list above, CPU rest, overlap via double-buffer.
+// Determinism: GPU reductions use fixed-order tree (workgroup reduce → ordered merge on CPU); versioned in snapshot header.
+```
+
+Memory re-check (10,242 cells): 40 f32 fields ≈ 40*10k*4B ≈ 1.6MB resident; snapshot (all + aux u16/u32 + tree refs) ~1–2MB raw, ~400KB zstd — original claim holds as *compressed* size. Document both.
+
+## 18. Config Schemas v1.1 (TOML sketches)
+```toml
+[sim] mode="formation"|"present"|"forward" grid="L2" seed=42 version=1
+[time] sync_kyr=1.0 watchdog=true max_dt_kyr=100.0
+[devices] policy="Auto" staging_mb=256
+[formation] theia_jitter=0.1 volatile_H2O=1.0 # Earth oceans
+[tectonics] plates=12 euler_drift=0.05 orogeny_m_per_kyr=50
+[atmos] core="embm+dycore-lite" rad_bands=8 clouds="rh-diag"
+[ocean] layers=2 amoc_sens=1.0
+[geochem] weathering_k=1.0 outgas_scale=1.0
+[bio] trait_dim=32 mutation=1e-3 abiogenesis_hazard=1e-6
+[eco] dispersal=0.05
+[civs] enabled="auto" tech_cap=3.0
+[data] fetch="auto" cache="data/cache" embedded_fallback=true
+[ensemble] n=64 method="lhs" score="checkpoint-rmse"
+```
+
+## 19. Core Traits v1.1 (sketch for arch reviewer to finalize)
+```rust
+pub trait Subsystem {
+  fn id(&self)->&'static str; fn dt_range(&self)->(f64,f64); // sim-yr
+  fn step(&mut self, g:&mut Grid, t:SimTime, dt:f64, rng:&mut RngStream)->Result<Diagnostics>;
+  fn handshake(&self)->Vec<FieldId>; // fields it reads/writes
+}
+pub struct Coupler { order: Vec<&'static str>, sync_interval_yr: f64 }
+impl Coupler { pub fn sync(&self, g:&mut Grid)->Result<ConservationReport>; }
+```
 
 ## Appendix A: Open Questions for Next Iterations
 - Spectral vs finite-volume atmos core final choice after M3 perf.
