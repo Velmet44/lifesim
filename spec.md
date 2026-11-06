@@ -204,6 +204,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - v1.2 2026-11-06 07:34–08:46 UTC: integrated gpui+validation+compute+arch — Path-B M0 render, thread proto, color rules, CLI schemas; H-a/b/c hindcasts, 3-tier ensembles, S scoring, T2/T3 gates, manifest+ethics; corrected memory (1.7MB resident/zstd 300-500KB), resident-GPU + staging<=10%, dt-qualified budgets; facade crates, exact traits, DAG coupling, .lfs snapshots, feature presets; §13/§14 testable gates + tripwires.
 - v1.3 2026-11-06 ~08:50 UTC: integrated science review — pinned Gough τ-form + EUV/lunar equations; WHK+seafloor weathering + redox-closed O₂ with staged GOE gate; emergent Snowball bifurcation probe; Stommel AMOC + hysteresis stack + MPT negative control; Sharpe-Schoolfield fitness + Holling-II + staged abiogenesis λ₀; AR6 ECS gate + widened present-day CO₂ ±10ppm; K-Pg mechanism chain.
 - (append entries below as refinements land)
+- v1.4 2026-11-06 ~08:52 UTC: adversarial audit (20 findings) resolved — canonical RNG/snapshot/trait/control/scoring/table; preset table + precedence; staging cap 64MB; DAG-pass decimation; §10 CLI canonical; conservation rel-tols; ethics scoping. Promoted docs/twin-init.md + docs/deep-future.md (ERA5→L2 remap, prescription tables, spin-up gates, H-series wiring, R0–R3 matrix, greenhouse ladder, watermarking).
 
 ## 16. Checkpoint Table T1 (normative numbers; method in §8; weights TBD M0 by validation owner)
 | Epoch | Observable | Control-run target | Tolerance (initial) | Gate blocks |
@@ -320,14 +321,16 @@ enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:Strin
 - Ice → sea level → shelf area → burial/weathering area + albedo; dust ↔ radiation + ocean Fe fertilization.
 - Impacts/LIPs → stratospheric AOD (Toohey, e-fold 1–3 yr) → T + MLD + PAR; anoxia (P-input × stratification) → selective extinction.
 
-## 25. Glossary (abbreviations used in gates)
+## 25. Glossary
+(Twin init: docs/twin-init.md. Deep-future: docs/deep-future.md.)
+ (abbreviations used in gates)
 PAL (present atmospheric level, O₂=0.21 bar) · SLE (sea-level equivalent, m) · MPT (Mid-Pleistocene Transition ~0.9 Ma) · EMBM (energy-moisture-balance model) · SIA (shallow-ice approximation) · MISI (marine-ice-sheet instability) · ECS (equilibrium climate sensitivity, Gregory 150-yr + slab) · LHS (Latin hypercube) · EnKF (ensemble Kalman filter) · TPC (thermal performance curve, Sharpe-Schoolfield) · PFT (plant functional type) · AOD (aerosol optical depth) · f_org (organic burial fraction) · MIF-S (mass-independent S fractionation, Δ³³S) · GOE/NOE (Great/Neoproterozoic Oxidation Events) · BSE (bulk silicate Earth) · ZAMS (zero-age main sequence) · TSI (total solar irradiance) · LLR (lunar laser ranging) · CRE (cloud radiative effect) · FWF (freshwater flux, Sv) · IC/PARAM/STOCH (ensemble tiers) · H-a/b/c (hindcasts) · L0–L3 (grid presets 642/2562/10242/40962).
 
 ## 26. Satisfaction Checklist (stop conditions for the refinement loop)
 - [x] All 5 background reviews landed + integrated (gpui v1.2, validation v1.2, compute v1.2, arch v1.2, science v1.3).
 - [x] Consistency sweep: single story for RNG, snapshots, ECS, CO₂ tols, Snowball, kernels (v1.3.1).
-- [ ] Twin-init + deep-future scratch drafts integrated (workers running).
-- [ ] Adversarial audit integrated.
+- [x] Twin-init + deep-future drafts integrated as docs/ (v1.4).
+- [x] Adversarial audit integrated (v1.4, 20/20 findings).
 - [ ] Wall clock ≥11:46 UTC 2026-11-06 (phase-2 3h window).
 
 ## Appendix A: Open Questions (status 08:46 UTC, phase 2)
