@@ -1,0 +1,5 @@
+/target/
+data/cache/
+*.zst
+.review-*.md
+.DS_Store
