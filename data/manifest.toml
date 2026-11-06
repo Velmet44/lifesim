@@ -1,0 +1,37 @@
+# data/manifest.toml — every fetched dataset pinned (validation review §8). CI --offline uses embedded fallbacks.
+# {url, doi, sha256, version, license, fetched_utc}
+
+[[dataset]]
+key = "topo_bathy"
+source = "ETOPO1/GEBCO_2023 resampled L2"
+url = "TODO"
+doi = "TODO"
+sha256 = "TODO"
+license = "public-domain-ish, attribute"
+fallback = "mean elev + land frac 0.29, hypso 5 bins"
+
+[[dataset]]
+key = "twin_ts_ic"
+source = "ERA5 monthly climatology 1991-2020"
+url = "TODO"
+sha256 = "TODO"
+license = "ECMWF licence, fetch-at-run, no redistribute"
+fallback = "GMST 288K, zonal gradient 6 lats, lapse 6.5K/km"
+
+[[dataset]]
+key = "ghg_forcing"
+source = "NOAA GML + Meinshausen SSP"
+license = "CC-BY/open"
+fallback_1750_ppm = 280
+fallback_2025_ppm = 420
+fallback_growth_ppm_per_yr = 2.4
+
+[[dataset]]
+key = "solar_volc"
+source = "SATIRE + Toohey eVolv2k"
+fallback = "Gough L(t) + AOD=0 default"
+
+[[dataset]]
+key = "biomass"
+source = "ESA CCI land-cover + ocean color NPP"
+fallback = "NPP 60 PgC/yr land + 50 ocean"

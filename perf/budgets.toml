@@ -1,0 +1,28 @@
+# perf budgets (initial targets from compute review §12; to be replaced by measured actuals)
+# All numbers at L2=10242 unless noted, mid quad-core CPU-only.
+
+[deep_time]
+dt_kyr = 1.0
+erosion_subcycle = 10
+target_myr_per_wall_s = 1.0
+note = "typical ~2.5 Myr/s; erosion powf+drainage dominates — subcycle required"
+
+[climate]
+dt = "daily"
+target_sim_yr_per_wall_s = 10.0
+note = "6-hourly FAILS ~4x CPU-only; High/GPU preset only. EMBM annual for deep-time handshake."
+
+[twin]
+fidelity = "daily"
+target_wall_s_per_sim_yr = 5.0
+note = "daily full-physics ~0.2s + IO; hourly ~2.6s, ensemble headroom limited"
+
+[gpu]
+claim = "2-5x only fused resident high-ALU kernels; Laplacians 1.2-2x at L2"
+staging_budget_pct = 10
+staging_test_max_us = 100
+
+[ci]
+warn_pct = 15
+fail_pct = 30
+benches = ["kernels", "coupler", "e2e"]
