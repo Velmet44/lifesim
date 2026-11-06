@@ -45,6 +45,13 @@ lifesim/
 ### 5.1 Grid
 - Icosphere geodesic (Loop subdivision of icosahedron), cell-centered finite-volume.
 - Presets: L0=642, L1=2562, **L2=10242 default**, L3=40962 (`Real` preset, high-end only, GPU required unless `--accept-slow`). `Low`=L0, `High`=L2.
+- Canonical presets (grid × physics; `--preset` overrides `--grid`; `--grid` alone keeps Standard physics):
+| Preset | Grid | Atmos dt | Subcycling | GPU | Use |
+|---|---|---|---|---|---|
+| Low | L0 642 | EMBM annual | none | never | smoke tests |
+| Standard (default) | L2 10242 | daily dynamics-lite | full phase DAG | preferred | dev + control runs |
+| High | L2 10242 | 6-hourly | full phase DAG | preferred (required for 6-hourly headroom) | M3 ECS attribution |
+| Real | L3 40962 | 6-hourly | full phase DAG | required (refuse without adapter unless `--accept-slow`) | final/high-end only |
 - Dual representation: cells (SoA fields) + edges (u/v currents, C-grid-ish separate `EdgeSoA`) + vertices (render mesh rebuilt from cells, never simulated).
 - **Memory (corrected per compute review):** ~30 f32/cell ≈128B/cell → L2 fields ~1.31MB + CSR ~0.29MB + verts ~0.16MB ≈ **1.7MB resident** (L3 ≈7MB). **Snapshots:** `full()` ~1.5MB, `lite()` ~10-field ~400KB, compressed archival (zstd) ~300–500KB L2. Track all three in `perf/`. Memory is non-constraint; bottleneck is bandwidth + dispatch.
 - Fields per cell (f32 unless noted): elevation_m, crust_thickness_km, crust_age_Myr, plate_id(u16), mantle_heat_flux, surf_temp_K, atm: T, p, q, ocean: SST, SSS, MLD, ice_frac/thick, pCO2_ppm, pO2, pCH4, alkalinity, DIC, nutrients_P, biomass pools (microbial, veg, fauna, marine), species_richness(u32), land_use_frac, civ_presence/tech/energy/emissions. f64 accumulators (carbon/energy/water totals, era time) live in separate `Totals`, not SoA. No f16.
@@ -64,11 +71,11 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Runtime DevicePolicy: Auto | CpuOnly | GpuPreferred | Hybrid. Probe adapters; software/no-GPU/staging-test-fail -> Cpu. Hybrid places fused stencil groups on GPU only if resident_steps x gain > 2x migration cost; any gpu err -> log + CPU rerun (mark backend=cpu-fallback).
 - CPU: rayon pool sized N-2 (reserve UI + wgpu poll) + autovectorized SIMD (no nightly std::simd); deterministic indexed tiles + serial final fold.
 - GPU: wgpu compute for FUSED stencil groups with device-resident subcycling (atmos dyn+rad, ocean advect-diffuse, mantle diffuse, SIA-lite, erosion stencil w/o drainage sort); one WGSL module per family + shared grid.wgsl CSR; workgroup 128-256, 1 cell/thread, SoA StorageBuffers; staging budget <=10% step (40KB L2 field; naive per-kernel shuttle banned). CPU stays: plate rotation/boundaries, drainage sort, phylogeny/agents/events, reductions audit, IO.
-- Perf harness perf/ (criterion kernels/coupler/e2e benches L0-L3 x CPU/GPU + budgets.toml; CI perf-check +-15% warn/+-30% fail). See S12 for dt-qualified budgets.
+- Perf harness perf/ (criterion kernels/coupler/e2e benches L0-L3 x CPU/GPU + budgets.toml; CI perf-check +-15% warn/+-30% fail). See §12 for dt-qualified budgets.
 
 ### 5.4 Coupling
 - Field registry (FieldId u16 stable IDs + units + ranges + single writer per phase; Coupler::new panics on overlapping writes). Phase DAG: [tectonics dt]->[climate subcycle]->[weathering+geochem]->[bio/eco]->[audit]; audit after every phase
-- Conservation audit each phase (energy/water/carbon f64 Totals); imbalance > tol => Err(Conservation) -> watchdog retry/abort, never silent clamp.
+- Conservation audit each phase (energy/water/carbon f64 Totals); rel-tols per phase — energy 1e-5, water 1e-6, carbon 1e-6; geochem additionally |sources−sinks|<1% throughput (§23#2). Imbalance > tol => Err(Conservation) -> watchdog retry/abort, never silent clamp.
 
 ## 6. Subsystems
 
@@ -109,7 +116,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Seafloor weathering (required, Sleep & Zahnle 2001 / KT15): `F_sea = k_sea·(Q/Q₀)^m·(pCO₂/p₀)^γ·exp(−E_sea/RT_pore)`, m=0.5–1.0, γ=0.2–0.4, modern F_sea=1–4 Tmol C/yr. Dominates when f_land<0.1.
 - Outgassing: `F_out = F_out,₀·(Q/Q₀)^n_out·(1+LIP(t)/F_out,₀)`, F_out,₀=6–10 Tmol C/yr, n_out=0.5–1.0. Carbonate burial = sink at steady state; CCD/pH from rebuilt alkalinity+DIC (Zeebe & Wolf-Gladrow K1/K2(T,S)).
 - Oxygen (redox-closed, Catling & Kasting Ch.10–13): `dO₂/dt = f_org·F_C,burial − (F_red + F_met + F_esc)`, f_org≈0.15–0.25; F_red scales to F_out with mantle fO₂ evolution; H-escape from EUV + cold-trap. GOE gate: MIF-S loss (Δ³³S<0.1‰) 2.45–2.32 Ga; pO₂ <1e-6 PAL → 1e-6–1e-2 overshoot (±1 dex stage boundaries, timing ±0.05 Gyr) → Proterozoic hold <1e-1 PAL until NOE ≥0.8 Ga.
-- Validation: preindustrial 280±5 ppm (calibration); Archean steady state pCO₂ 1e3–1e5 ppm at T 270–300 K; Phanerozoic GEOCARB track ±0.5 dex.
+- Validation: preindustrial 280±10 ppm (calibration; EMBM error floor — ±5 aspirational only); Archean steady state pCO₂ 1e3–1e5 ppm at T 270–300 K; Phanerozoic GEOCARB track ±0.5 dex.
 - Nutrients P (+Fe marine) Liebig-limiting; pH/alkalinity for twin acidification.
 
 ### 6.8 Life / Evolution (`bio`)
@@ -132,7 +139,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 
 ### 6.11 Events
 - Types: impacts (size-freq power law + scripted Chicxulub-analog option), LIPs/supervolcanoes (VEI8), superplumes, anoxic events, biotic innovations, gamma/cosmic (rare). Snowball is NEVER injected — emergent only (probe below).
-- Snowball bifurcation probe (Voigt & Abbot 2012; Pierrehumbert; Hoffman & Schrag): runaway declared iff ice-line <25° sustained ≥2 kyr with d(ice-line)/dt<0 at fixed forcing. Sturtian probe: 717 Ma palaeogeography + 0.94 L⊙ + pCO₂ 200→40 ppm; entry required in 130–40 ppm; exit via 0.01–0.1 bar CO₂ over 3–30 Myr. Metric: ice-line latitude + global T + thickness class (thin<2m vs thick>10m). M4 gate: ≥3/10 perturbed members enter AND control has zero spontaneous Snowballs outside 720–635 Ma.
+- Snowball bifurcation probe (Voigt & Abbot 2012; Pierrehumbert; Hoffman & Schrag): runaway declared iff ice-line <25° sustained ≥2 kyr with d(ice-line)/dt<0 at fixed forcing. Sturtian probe: 717 Ma palaeogeography + 0.94 L⊙ + pCO₂ 200→40 ppm; entry required in 130–40 ppm; exit via 0.01–0.1 bar CO₂ over 3–30 Myr. Metric: ice-line latitude + global T + thickness class (thin<2m vs thick>10m). M4 gate (deeptime control): entry as pCO₂ is drawn down 200→40 ppm in ≥3/10 perturbed members AND deeptime control has zero spontaneous Snowballs outside 720–635 Ma AND §23#4 1-D Budyko-Sellers hysteresis cross-check shows two stable branches.
 - Seeded + reproducible; scripted triggers available for validation (e.g., force 66Ma impactor in test). K-Pg chain (Toon): 10 km / 1–3e24 J → AOD>10 for >3 yr → PAR −90%, land T −5–10 K → NPP collapse; biomass −50–−80% must FOLLOW from eco equations, not imposed kill fraction; separate Deccan pre-stress run required.
 
 ## 7. Data Pipeline (`earth-io`)
@@ -142,13 +149,13 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Licensing: track provenance + license per dataset; no redistribution of restricted data; scripts fetch at build/run.
 
 ## 8. Validation & Calibration (research core — v1.2 integrated from validation review)
-- **Hindcasts (required):** H-a 1850→2025 (full industrial, prescribed GHG/aerosol/solar/volc), H-b 1900→2020 rolling 20-yr windows every 10yr, H-c 2005→2025 Argo-era holdout (no tuning on H-c). Anomaly baselines stated per test (1850–1900 or 1991–2020).
-- **Ensemble tiers:** IC n≥20 (perturbed IC) · PARAM LHS n≥32 (weathering_k, outgas, albedo, ECS-proxy, AMOC sens) · STOCH seed sweep n≥10. Deep-time: LHS n≥64 lite-grid L0/L1 + n≥8 L2 confirmation of control only; GP emulator + Sobol published. Control = PARAM best + IC mean; report spreads separately.
-- **Scoring:** `z=(m-o)/tol` (log: dex), `S=sqrt(mean(w·z²))+0.1·D_Maha(theta,prior)`; pass iff `S_cal≤1.0` + no range-gate fail + H-c coverage ok. Publish per-checkpoint z table in CI. See §16 T1 weights; cal/val split — val failures documented, no retuning without version bump.
-- **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 blocked on T2 1900–2025 repro (CO2 420±10ppm — EMBM transport+seasonal error floor, ΔT ±0.2K vs 1850–1900, OHC ±30%, Sep ice ±5pp/dec, SLR total 20±5cm 1900–2025, pop ±3%/energy ±10% scenario-labeled).
+- **Hindcasts (required):** H-a 1850→2025, H-b 1900→2020 rolling 20-yr windows every 10yr, H-c 2005→2025 holdout (no tuning on H-c). **Baseline convention:** ΔT ≡ 0 at 1850–1900 for ALL twin gates (T2/T3); 1750 row reports absolute CO₂ only (no ΔT baseline); per-test baseline printed in every check output. No 1991–2020 ΔT baselines in gates.
+- **Ensemble tiers:** IC n≥20 · PARAM LHS n≥32 · STOCH n≥10. Deep-time: LHS n≥64 lite-grid L0/L1 + n≥8 L2 confirmation. **Controls (split):** `control-deeptime.toml` = single best trajectory+seed (min S_cal; all M1–M6/G1/G2 gates evaluated on it); `control-twin.toml` = ensemble mean+spread around PARAM-best (all T2/T3/H-c gates on it). Never one file for both estimators.
+- **Scoring:** `z=(m-o)/tol` (log vars: dex), `S=sqrt(sum w·z²/sum w)+λ·D_Maha(theta,prior)`, λ=0.1 with Ledoit-Wolf shrinkage reported; pass iff `S_cal≤1.0` + no range-gate fail + H-c coverage ok; `S_val` reported separately (report-only, no gate). Weights w = T1 column in §16. Publish per-checkpoint z table in CI; cal/val split — val failures documented, no retuning without version bump.
+- **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 requires full T2 (OHC ±30%, Sep ice ±5pp/dec, SLR total 20±5cm, pop ±3%/energy ±10% scenario-labeled) + 1-Gyr soak. M7 blocks M8.
 - **Forcings:** prescribed Meinshausen GHG + Toohey AOD + SATIRE solar + MACv2 aerosols for H-a/H-b; free civ-emissions runs tagged counterfactual.
 - **Data manifest:** `data/manifest.toml` {url,doi,sha256,version,license,fetched_utc}; CI `--offline` runs on pinned embedded fallbacks, `--online` verifies checksums; never vendor restricted bytes.
-- **Ethics (civs):** SCENARIO-not-forecast labeling, bands-first; no sub-global targeting (global+4 lat bands max); collapse scenarios opt-in + banner; deep-future (>10kyr) SPECULATIVE watermark; no infra coupling.
+- **Ethics (civs):** SCENARIO-not-forecast labeling, bands-first; no sub-global targeting of civ *outcomes* in exports/scoring (global+4 lat bands; no per-region ranking; cell-level GUI inspection allowed with SCENARIO watermark); collapse scenarios opt-in + banner; deep-future (>10kyr) SPECULATIVE watermark; no infra coupling.
 - Every subsystem has `docs/provenance/*.md` with equations + citations.
 
 ## 9. GPUI App (`earth-gpui`) — All View Modes (v1.2 integrated from gpui review)
@@ -165,7 +172,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - **M0 spike gates:** Path-B globe ≥2fps L0 CPU-only + golden screenshot; single wgpu version; determinism byte-equal rerun; timeline scalars <100ms load / <200ms seek; export parity byte-compare; keyboard playback headless without mouse.
 
 ## 11. Determinism, Repro, Versioning
-- Triple versioning: engine_version (Cargo) != snapshot_version (u32 layout) != config_version (TOML [sim] version); every output embeds all three + blake3(canonical TOML) + backend/determinism/adapter/threads. Snapshots: single .lfs file (magic LFS1 + postcard header + body + blake3 + zstd); phylo tree as separate append-only .tree.lfs. CI: CpuOnly rerun hash-equal; GPU within-tol; checkpoint tests per milestone.
+- Triple versioning: engine_version (Cargo) != snapshot_version (u32 layout) != config_version (TOML [sim] version); every output embeds all three + blake3(canonical TOML) + backend/determinism/adapter/threads. Snapshots: single state file `state.lfs` (magic LFS1 + postcard header + body + blake3 + zstd); run dir may also hold optional append-only `phylo.tree.lfs` sidecar (see §19). Snapshot layout version = snapshot_version u32. CI: hash-equal reruns within identical (version,grid,seed,backend,adapter,algo); statistical equality across backends/adapters (|mean diff|<1e-5); checkpoint tests per milestone.
 
 ## 12. Performance Budgets (to be measured, tracked in perf/)
 - Targets at L2, mid quad-core CPU-only (to be replaced by perf/ actuals): deep-time >=1 Myr/wall-s at dt=1kyr with erosion 1:10 (PASS ~2.5 Myr/s typical); climate >=10 sim-yr/wall-s at DAILY dt with EMBM/dynamics-lite (6-hourly only High/GPU preset; 6-hourly FAILS ~4x CPU-only); twin year <5 wall-s daily. GPU 2-5x only fused resident high-ALU kernels; Laplacians ~1.2-2x L2. Staging <=10% step. Measure on reference quad-core before freezing.
@@ -198,7 +205,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - v1.3 2026-11-06 ~08:50 UTC: integrated science review — pinned Gough τ-form + EUV/lunar equations; WHK+seafloor weathering + redox-closed O₂ with staged GOE gate; emergent Snowball bifurcation probe; Stommel AMOC + hysteresis stack + MPT negative control; Sharpe-Schoolfield fitness + Holling-II + staged abiogenesis λ₀; AR6 ECS gate + widened present-day CO₂ ±10ppm; K-Pg mechanism chain.
 - (append entries below as refinements land)
 
-## 16. Checkpoint Table (see §8 canonical; legacy v1.1 table kept for traceability — validation reviewer T1 supersedes tolerances/weights)
+## 16. Checkpoint Table T1 (normative numbers; method in §8; weights TBD M0 by validation owner)
 | Epoch | Observable | Control-run target | Tolerance (initial) | Gate blocks |
 |---|---|---|---|---|
 | 4.54 Ga | accretion energy / magma ocean onset | Tm>1800K global | ±200K | M1 |
@@ -215,7 +222,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 | 2025 | present (annual CO₂; ΔT vs 1850–1900) | 420ppm, +1.1–1.3K | CO₂ ±10ppm, T ±0.2K | M7/M8 |
 | 2×CO2 | ECS Gregory 150-yr + slab eq (pattern-corrected) | AR6 likely 2.5–4.0, best 3.0 | gate 2.0–5.0 + kernel breakdown | M3 |
 
-Scoring: weighted RMSE in normalized units; control-run = min score over LHS ensemble (n≥64 deep-time-lite, n≥20 twin). Publish `control-run.toml` + seed + hash.
+Scoring: see §8 canonical (`z`, S, D_Maha + Ledoit-Wolf, S_cal≤1.0 gate, S_val report-only). Weights = T1 column below (TBD values M0, owner validation). Control files per §8 split; publish both + seeds + hashes.
 
 ## 17. Kernel & DevicePolicy v1.1
 | Kernel | Grid op | CPU strat | GPU candidate | Precision |
@@ -232,25 +239,18 @@ Scoring: weighted RMSE in normalized units; control-run = min score over LHS ens
 | civ agents | sparse agents | serial CPU | no | f32/f64 mix |
 
 ```rust
-#[derive(Clone,Copy)] pub enum DevicePolicy { Auto, CpuOnly, GpuPreferred, Hybrid }
-pub trait Kernel {
-  fn name(&self)->&'static str;
-  fn run_cpu(&self, g:&GridViewMut, p:&Params)->Result<Diagnostics>;
-  fn wgsl(&self)->Option<&'static str>; // None = CPU-only
-  fn supports_gpu(&self)->bool { self.wgsl().is_some() }
-}
-pub struct Scheduler { policy: DevicePolicy, staging_budget_mb: usize }
-// Auto: probe adapter; if none → CpuOnly. Hybrid: GPU for stencil list above, CPU rest, overlap via double-buffer.
-// Determinism: GPU reductions use fixed-order tree (workgroup reduce → ordered merge on CPU); versioned in snapshot header.
+// Canonical Kernel trait lives in §5.3 (name/kind/reads/writes/run_cpu/wgsl_module). This section is backend-mapping only.
+pub struct Scheduler { policy: DevicePolicy, staging_budget_mb: usize } // budget ≤64MB; placement inequality in §5.3
+// Table above = which kernels are fused resident-GPU groups vs CPU. No competing placement rule here.
 ```
 
-Memory re-check (10,242 cells): 40 f32 fields ≈ 40*10k*4B ≈ 1.6MB resident; snapshot (all + aux u16/u32 + tree refs) ~1–2MB raw, ~400KB zstd — original claim holds as *compressed* size. Document both.
+Memory (canonical counts from field registry: ~30 f32/cell ≈128B): L2 fields ~1.31MB + CSR ~0.29MB + verts ~0.16MB ≈ 1.7MB resident total (see §5.1). Snapshots: full() ~1.5MB, lite() ~400KB, zstd ~300–500KB. §14 tripwire denominator = CPU resident total incl. CSR+verts (GPU mirrors excluded).
 
 ## 18. Config Schemas v1.1 (TOML sketches)
 ```toml
 [sim] mode="formation"|"present"|"forward" grid="L2" seed=42 version=1
-[time] sync_kyr=1.0 watchdog=true max_dt_kyr=100.0
-[devices] policy="Auto" staging_mb=256
+[time] slow_handshake_kyr=1.0 # full DAG pass interval (deep-time); phases+subcycles per era in docs/era-dt.md watchdog=true max_dt_kyr=100.0
+[devices] policy="Auto" staging_mb=64 # ≤64MB cap; placement inequality + ≤10% step budget in §5.3
 [formation] theia_jitter=0.1 volatile_H2O=1.0 # Earth oceans
 [tectonics] plates=12 euler_drift=0.05 orogeny_m_per_kyr=50
 [atmos] core="embm+dycore-lite" rad_bands=8 clouds="rh-diag"
@@ -270,30 +270,31 @@ pub trait Subsystem {
   fn step(&mut self, g:&mut Grid, t:SimTime, dt:f64, rng:&mut RngStream)->Result<Diagnostics>;
   fn handshake(&self)->Vec<FieldId>; // fields it reads/writes
 }
-pub struct Coupler { order: Vec<&'static str>, sync_interval_yr: f64 }
-impl Coupler { pub fn sync(&self, g:&mut Grid)->Result<ConservationReport>; }
+pub struct Phase { pub name: &'static str, pub members: Vec<&'static str>, pub dt_yr: f64 }
+pub struct Coupler { pub phases: Vec<Phase> } // sync = one full DAG pass; slow-handshake interval in [time]
+impl Coupler { pub fn sync(&self, w: &mut World)->SimResult<ConservationReport>; }
 ```
 
 ## 20. Determinism & Snapshot Protocol v1.2 (main-agent pass)
-- RNG: per-subsystem `RngStream(tag, seed, step_counter)` via splitmix64; streams versioned (`rng_v1`). No wall-clock / thread-id entropy.
-- Reductions: chunk→fixed-order tree merge (CPU) / workgroup-reduce→ordered host merge (GPU). No atomic-float accumulation.
-- Snapshot header (JSON): `{sim_version, grid, seed, config_hash, mode, t_yr, rng_state, kernel_versions}` + body bincode+zstd. Hash (blake3) of decoded fields stored for `earth-cli check --determinism` (rerun → same hash).
-- CI: `determinism-smoke` (L0, 100 sync ticks, 2 reruns, hash equal) blocks merge.
+- RNG: per-subsystem `RngStream(tag,seed,tick) = Xoshiro256PlusPlus(blake3(seed||tag||tick||rng_v))`, rng_v=1, tick = global phase counter u64 LE. No wall-clock / thread-id entropy. (splitmix64 retired everywhere.)
+- Reductions (canonical algorithm): CPU = TILE=1024 indexed slots + serial final fold in cell-index order; GPU = per-workgroup partials → ordered host merge in index order. Ban `par_iter().sum()` and atomic-float accumulation. (Unifies §5.1/§5.2/§17 descriptions.)
+- Snapshots: see §11 canonical (`state.lfs` + optional `phylo.tree.lfs`; postcard+zstd+blake3; JSON-header/bincode retired). Hash = blake3(decoded fields) stored for `earth-cli check --determinism`.
+- CI: `determinism-smoke` (L0, 100 DAG passes, 2 reruns, hash equal) blocks merge.
 
 ## 21. CLI & App Protocol v1.2 (sketch)
 ```bash
-earth-cli init --mode present --grid L2 --seed 7 --config base.toml
-earth-cli run --steps 1000 --checkpoint-every 100 --out data/runs/run-001/
-earth-cli ensemble --n 64 --param ensemble/lhs.toml --score checkpoint-rmse
-earth-cli check --epoch LGM --run data/runs/run-001/
-earth-cli export --format parquet --layers surf_temp,ice_frac,biomass --out out/
+lifesim init --mode present --grid L2 --seed 7 --out runs/run-001   # §10 canonical; --preset overrides --grid
+lifesim run --config lifesim.toml [--steps N] [--preset Standard]
+lifesim ensemble --config lifesim.toml -n 64 --vary geochem.weathering_k:0.5..2.0
+lifesim check --epoch LGM --run runs/run-001
+lifesim export --run runs/run-001 --format parquet --scope snapshot --at tick:1000
 ```
 - GUI↔sim messages (mpsc, never blocks UI):
 ```rust
 enum SimCmd { Pause, Resume, StepOnce, SetSpeed(f64), ScrubTo(f64/*yr*/), SetCO2(f64), InjectImpact{lat:f32,lon:f32,d_km:f32}, Reseed(u64) }
 enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:String} }
 ```
-- Timeline decimation: store every Nth tick full + every tick globals; scrubber interpolates globals, loads nearest full on pause.
+- Timeline decimation: store full `state.lfs` every Nth DAG pass (era-dependent: Hadean 1/100, Phanerozoic 1/10, Twin every pass) + scalar globals every pass; scrubber seeks nearest committed pass + fast-forwards suppressed subsystems (marked preview-interpolated).
 
 ## 22. UQ & Ethics Note v1.2
 - Twin ensembles report mean±P10–P90 bands, never single-line forecasts; document forcing assumptions (SSP-like scenarios table TODO).
