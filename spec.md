@@ -174,12 +174,14 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - M8 civs+deep-future: T2 1900–2025 repro (CO2 ±4ppm, ΔT ±0.15K); 1-Gyr stability no-crash. CI: check A2 + long soak.
 - M9 polish: L3 Real preset, nested regional climate, NetCDF (feature), plugin API, perf trend published.
 
-## 14. Risks
-1. GPUI×wgpu embedding — spike early, fallback ready.
-2. Numerical drift over Gyr — era regimes + watchdog + auto-dt.
-3. Calibration non-identifiability — priors + sensitivity analysis.
-4. Scope creep — feature flags + Low/High/Real presets.
-5. Data licensing — fetch-at-run, provenance tracked.
+## 14. Risks (owner + mitigation + tripwire)
+1. GPUI×wgpu embedding (owner: gpui) — spike both paths day-1, M0 ships Path B; single-wgpu-version CI gate. Tripwire: second wgpu version in `cargo tree` fails CI.
+2. Numerical drift over Gyr (owner: core) — era regimes + per-phase audit + halve-retry-abort watchdog; never silent clamp. Tripwire: conservation CI red.
+3. Calibration non-identifiability (owner: validation) — literature priors + Sobol + cal/val split + frozen control-run; report degeneracy (weathering_k/outgas r>0.8 → reparametrize). Tripwire: S_cal ≤1 with |r|>0.8 forces reparam issue.
+4. Scope creep / EVERYTHING (owner: all) — subsystems are feature-flagged traits; Low/High/Real presets bound default cost; new fields require FieldId + writer + budget note. Tripwire: L2 resident >2.5MB or deep-time <1Myr/s blocks merge.
+5. Data licensing (owner: io) — fetch-at-run + manifest checksums + pinned embedded fallbacks; `--offline` CI; never vendor restricted bytes. Tripwire: offline CI job red.
+6. GPU-staging optimism (owner: compute) — resident-subcycling rule + ≤10% staging budget + startup staging_test; CPU-first claims. Tripwire: staging >10% disables GPU path with log.
+7. Overconfident predictions (owner: validation) — bands-first UQ, coverage gates, SCENARIO labeling, ethics display rules. Tripwire: H-c coverage fail blocks M7/M8.
 
 ## 15. Improvement Log
 - v1.0 2026-11-06 07:27 UTC: initial comprehensive draft. Refinement subagents launched.
