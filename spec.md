@@ -29,7 +29,7 @@ lifesim/
   spec.md
   Cargo.toml (workspace)
   crates/
-    earth-core/      # time, grid, fields, traits, coupling, events, rng, checkpoint
+    earth-core/      # FACADE re-exporting leaves: earth-units/grid/time/rng/traits/couple/snap (one-way DAG; subsystems dep earth-traits only; orchestrator earth-sim owns World::step)
     earth-kernels/   # Kernel trait + CPU(rayon+SIMD) / GPU(wgpu compute) backends, auto-select + fallback
     formation/ solar/ interior/ tectonics/ atmos/ ocean/ ice/ geochem/ bio/ eco/ civs/
     earth-io/        # datasets fetch/cache/embed/import, snapshots, timeline log, export parquet/csv/netcdf
@@ -44,30 +44,31 @@ lifesim/
 
 ### 5.1 Grid
 - Icosphere geodesic (Loop subdivision of icosahedron), cell-centered finite-volume.
-- Presets: L0=642, L1=2562, **L2=10242 default**, L3=40962 (`Real` preset, high-end only), plus `Low` alias.
-- Dual representation: cells (SoA fields) + vertices for rendering mesh.
-- Fields per cell (f32 unless noted): elevation_m, crust_thickness_km, crust_age_Myr, plate_id(u16), mantle_heat_flux, surf_temp_K, atm: T, p, q, u/v (edge), ocean: SST, SSS, MLD, currents, ice_frac/thick, pCO2_ppm, pO2, pCH4, alkalinity, DIC, nutrients_P, biomass pools (microbial, veg, fauna, marine), species_richness(u32), land_use_frac, civ_presence/tech/energy/emissions.
-- Memory budget: ~400KB per full snapshot at 10k cells (f32 SoA + u16/u32 aux). Snapshots compressed (zstd) + decimated timeline.
-- Neighbor iterators precomputed (CSR). Area-weighted reductions in fixed order for determinism.
+- Presets: L0=642, L1=2562, **L2=10242 default**, L3=40962 (`Real` preset, high-end only, GPU required unless `--accept-slow`). `Low`=L0, `High`=L2.
+- Dual representation: cells (SoA fields) + edges (u/v currents, C-grid-ish separate `EdgeSoA`) + vertices (render mesh rebuilt from cells, never simulated).
+- **Memory (corrected per compute review):** ~30 f32/cell ≈128B/cell → L2 fields ~1.31MB + CSR ~0.29MB + verts ~0.16MB ≈ **1.7MB resident** (L3 ≈7MB). **Snapshots:** `full()` ~1.5MB, `lite()` ~10-field ~400KB, compressed archival (zstd) ~300–500KB L2. Track all three in `perf/`. Memory is non-constraint; bottleneck is bandwidth + dispatch.
+- Fields per cell (f32 unless noted): elevation_m, crust_thickness_km, crust_age_Myr, plate_id(u16), mantle_heat_flux, surf_temp_K, atm: T, p, q, ocean: SST, SSS, MLD, ice_frac/thick, pCO2_ppm, pO2, pCH4, alkalinity, DIC, nutrients_P, biomass pools (microbial, veg, fauna, marine), species_richness(u32), land_use_frac, civ_presence/tech/energy/emissions. f64 accumulators (carbon/energy/water totals, era time) live in separate `Totals`, not SoA. No f16.
+- SoA: struct-of-`Vec<f32>` 64B-aligned, one Vec per FieldId (stable u16 IDs in canonical registry — arch reviewer table TODO M0), `area_m2` precomputed (sums to 4πR² asserted at build). Neighbors: precomputed CSR (`csr_off[N+1]`, `csr_nbr[~6N]`), fixed order for determinism. WGSL: one StorageBuffer per field.
+- Neighbor iterators precomputed (CSR). Area-weighted reductions use fixed-order tiled pattern (TILE=1024, indexed slots, serial final fold — never `par_iter().sum()`); see §20.
 
 ### 5.2 Time Manager
-- Adaptive per-subsystem dt + global sync ticks. Era-aware regimes: Hadean (Myr steps ok), Phanerozoic (kyr), Twin-mode (yr/day subcycled).
-- Fast systems (atmos/ocean) subcycle between slow handshakes. Watchdog: CFL/diag checks → auto-dt shrink + log.
-- Deterministic seeded RNG (splitmix64 / xoshiro, versioned streams per subsystem). Same seed+version+grid = bit-identical (fixed-order reductions, no atomics nondeterminism).
+- Adaptive per-subsystem dt + Coupler phase DAG (not single sync tick). Era regimes map to phase tables (Hadean/Myr, Phanerozoic/kyr, Twin/daily subcycled). Erosion subcycled 1:10.
+- Fast systems (atmos/ocean) subcycle between slow handshakes. Watchdog: CFL/diag checks + conservation audit after every phase; halve dt + retry once then abort with event-log entry (never silent clamp). Checks → auto-dt shrink + log.
+- Deterministic seeded RNG (splitmix64 / xoshiro, versioned streams per subsystem). Two-tier determinism: bitwise-identical only within (version,grid,seed,backend,algo) via fixed-order tiled reductions (never par_iter().sum()); cross-backend CPU vs GPU = statistical equality. RNG per-subsystem blake3->Xoshiro streams.
 - Timeline log: every event {t, type, cell/region, magnitude, cause-chain}.
 
 ### 5.3 Kernel Abstraction (Hybrid CPU/GPU)
 ```rust
-trait Kernel { fn name()->&str; fn cpu(&self, ctx)->Result<()>; fn gpu_wgsl()->Option<&str>; fn cost_model()->Cost; }
+trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)->&[FieldId]; fn writes(&self)->&[FieldId]; fn run_cpu(&self,g:&GridAccess,p:&KernelParams)->SimResult<Diagnostics>; fn wgsl_module(&self)->Option<&str>; } // None=CPU-only; precompiled module name, fixed neighbor order, no atomics
 ```
-- Runtime `DevicePolicy`: `Auto | CpuOnly | GpuPreferred | Hybrid`. Probe wgpu adapters; fallback to CPU if no GPU.
-- CPU: rayon parallel + SIMD (wide / std::simd when stable, else scalar autovectorized loops).
-- GPU: wgpu compute shaders for stencil kernels (atmos dynamics, ocean advect, mantle diffusion, erosion). CPU+GPU mixed: scheduler assigns heaviest kernels to GPU, rest CPU, with explicit staging budget.
-- Perf harness `perf/` tracks sim-years/wall-sec per tier; budgets published per milestone.
+- Runtime DevicePolicy: Auto | CpuOnly | GpuPreferred | Hybrid. Probe adapters; software/no-GPU/staging-test-fail -> Cpu. Hybrid places fused stencil groups on GPU only if resident_steps x gain > 2x migration cost; any gpu err -> log + CPU rerun (mark backend=cpu-fallback).
+- CPU: rayon pool sized N-2 (reserve UI + wgpu poll) + autovectorized SIMD (no nightly std::simd); deterministic indexed tiles + serial final fold.
+- GPU: wgpu compute for FUSED stencil groups with device-resident subcycling (atmos dyn+rad, ocean advect-diffuse, mantle diffuse, SIA-lite, erosion stencil w/o drainage sort); one WGSL module per family + shared grid.wgsl CSR; workgroup 128-256, 1 cell/thread, SoA StorageBuffers; staging budget <=10% step (40KB L2 field; naive per-kernel shuttle banned). CPU stays: plate rotation/boundaries, drainage sort, phylogeny/agents/events, reductions audit, IO.
+- Perf harness perf/ (criterion kernels/coupler/e2e benches L0-L3 x CPU/GPU + budgets.toml; CI perf-check +-15% warn/+-30% fail). See S12 for dt-qualified budgets.
 
 ### 5.4 Coupling
-- Field registry with units + valid ranges. Exchange ticks aligned: e.g., every 1 kyr (deep-time) tectonics→elevation→climate→weathering→geochem→bio.
-- Conservation checks (energy, water, carbon) each sync; imbalance > tol → warn + clamp + log.
+- Field registry (FieldId u16 stable IDs + units + ranges + single writer per phase; Coupler::new panics on overlapping writes). Phase DAG: [tectonics dt]->[climate subcycle]->[weathering+geochem]->[bio/eco]->[audit]; audit after every phase
+- Conservation audit each phase (energy/water/carbon f64 Totals); imbalance > tol => Err(Conservation) -> watchdog retry/abort, never silent clamp.
 
 ## 6. Subsystems
 
@@ -132,27 +133,34 @@ trait Kernel { fn name()->&str; fn cpu(&self, ctx)->Result<()>; fn gpu_wgsl()->O
 - Export: Parquet/CSV primary, NetCDF converter, snapshot format v1 (bincode+zstd + json header with version/seed/grid/mode).
 - Licensing: track provenance + license per dataset; no redistribution of restricted data; scripts fetch at build/run.
 
-## 8. Validation & Calibration (research core)
-- **Checkpoint harness** (`earth-cli check --epoch <name>`): asserts global means within tolerance:
-  4.54Ga accretion energy, 4.43Ga solidification, 4.3Ga oceans, 3.5Ga stromatolites/life present, 2.4Ga GOE (O2 rise), 720–635Ma Snowball episodes reachable, 538Ma Cambrian radiation (richness spike), 252Ma Permian crash, 66Ma K-Pg impact→biomass collapse, 20ka LGM ice extent, preindustrial 280ppm, present ~420ppm + ~1.2K anomaly.
-- **Auto-calibration:** ensemble sweeps (Latin hypercube) over key params (weathering k, outgassing, albedo, mutation rates) → score vs checkpoints → publish `control-run.toml` nearest Earth.
-- Twin-mode 20-yr hindcast must stay sane; industrial-era repro gate blocks Civs milestone.
+## 8. Validation & Calibration (research core — v1.2 integrated from validation review)
+- **Hindcasts (required):** H-a 1850→2025 (full industrial, prescribed GHG/aerosol/solar/volc), H-b 1900→2020 rolling 20-yr windows every 10yr, H-c 2005→2025 Argo-era holdout (no tuning on H-c). Anomaly baselines stated per test (1850–1900 or 1991–2020).
+- **Ensemble tiers:** IC n≥20 (perturbed IC) · PARAM LHS n≥32 (weathering_k, outgas, albedo, ECS-proxy, AMOC sens) · STOCH seed sweep n≥10. Deep-time: LHS n≥64 lite-grid L0/L1 + n≥8 L2 confirmation of control only; GP emulator + Sobol published. Control = PARAM best + IC mean; report spreads separately.
+- **Scoring:** `z=(m-o)/tol` (log: dex), `S=sqrt(mean(w·z²))+0.1·D_Maha(theta,prior)`; pass iff `S_cal≤1.0` + no range-gate fail + H-c coverage ok. Publish per-checkpoint z table in CI. See §16 T1 weights; cal/val split — val failures documented, no retuning without version bump.
+- **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 blocked on T2 1900–2025 repro (CO2 ±4ppm, ΔT ±0.15K, OHC ±30%, ice trend ±5pp/dec, SLR ±5cm, pop ±3%/energy ±10% scenario-labeled).
+- **Forcings:** prescribed Meinshausen GHG + Toohey AOD + SATIRE solar + MACv2 aerosols for H-a/H-b; free civ-emissions runs tagged counterfactual.
+- **Data manifest:** `data/manifest.toml` {url,doi,sha256,version,license,fetched_utc}; CI `--offline` runs on pinned embedded fallbacks, `--online` verifies checksums; never vendor restricted bytes.
+- **Ethics (civs):** SCENARIO-not-forecast labeling, bands-first; no sub-global targeting (global+4 lat bands max); collapse scenarios opt-in + banner; deep-future (>10kyr) SPECULATIVE watermark; no infra coupling.
 - Every subsystem has `docs/provenance/*.md` with equations + citations.
 
-## 9. GPUI App (`earth-gpui`) — All View Modes
-- 3D globe via embedded wgpu surface (M0 spike; fallback render-to-texture). Layers: elevation/bathymetry, T anomaly, ice, aridity, biomass, species richness, civ energy/night-lights proxy.
-- 2D equirectangular + orthographic maps. Timeline scrubber with epoch ticks + event markers. Dashboard charts (CO2,O2,T,ice,biomass,richness,pop). Cell inspector (all fields + history sparkline). Playback (pause/scrub/speed), scenario editor (CO2 slider, inject impact/eruption, reseed), ensemble view (mean±band), export dialog.
-- UX: keyboard-first, async sim thread (mpsc), UI never blocks; progress + watchdog warnings surfaced.
+## 9. GPUI App (`earth-gpui`) — All View Modes (v1.2 integrated from gpui review)
+- **Embedding decision (Risk #1):** spike both day-1, **M0 ships Path B (render-to-texture fallback)**; promote to Path A (native `gpui::Surface`/Blade interop Element) only if spike passes with no GPUI fork. `cargo tree -i wgpu` must show single version (pinned to GPUI re-export). Render thread owns its Adapter/Device/Queue.
+- **Threads:** sim ↔ render ↔ UI, no shared mut. Sim→UI bounded `sync_channel(8)` keep-latest (dropped-previews counter in status bar); UI→Sim unbounded; transfer `Arc<SnapshotView>` (published fields only). UI cmds apply at sync-tick boundary + logged (replayable). See §21 for enums.
+- **Views (`views/`):** GlobeView (3D icosphere mesh, per-frame uniform+texture only) · MapView (2D equirect + ortho, CPU-raster for headless tests) · TimelineView (era-segmented log scale, decimated — scalars first <100ms, textures on demand) · DashboardView (scalar ring-buffers) · InspectorView (cell fields + ≤4096-pt sparkline) · ScenarioEditor (next-tick applies) · EnsembleView (mean±band + member selector) · ExportDialog (1:1 CLI parity, byte estimate).
+- **Credibility color rules:** no rainbow; fixed vmin/vmax per layer+era with clipped-legend ticks; shared `earth-core::colormap` LUT for GUI+CLI; defaults: hypsometric elev, RdBu diverging T-anomaly (±8K twin / ±20K deep-time), white-blue ice, viridis/plasma biomass, inferno civ-energy; colorblind-safe default on.
+- **Keyboard-first:** Space pause/resume, [/] or ←/→ ∓1 step, Shift ∓10, 1/2 globe/map, 3..7 right tabs, L layer, E export, ? help, q quit (confirm), s snapshot-now; single FocusHandle, modal focus trap, all actions buttoned.
+- UX: UI event latency <100ms p95 at full sim speed; watchdog dot + dropped-preview counter surfaced.
 
-## 10. CLI (`earth-cli`)
-- `init --mode formation|present|forward`, `run --steps --seed --grid --preset`, `ensemble --n --param`, `check --epoch`, `export --format`, `calibrate --budget`.
-- Headless-first; GUI optional. Config TOML versioned.
+## 10. CLI (`earth-cli`) — headless-first, canonical; GUI shells it
+- Versioned `lifesim.toml` (`config_version`, hashed into outputs). All cmds `--json`-capable.
+- `init --mode formation|present|forward --grid L2 --seed --out`, `run --config [--steps] [--preset Low]`, `ensemble -n --vary k:min..max`, `check --epoch K-Pg|GOE|LGM|preindustrial|present --run`, `export --format parquet|csv|netcdf --scope snapshot|scalars|events --at`, `calibrate --budget --target --out control-run.toml`.
+- **M0 spike gates:** Path-B globe ≥2fps L0 CPU-only + golden screenshot; single wgpu version; determinism byte-equal rerun; timeline scalars <100ms load / <200ms seek; export parity byte-compare; keyboard playback headless without mouse.
 
 ## 11. Determinism, Repro, Versioning
-- Sim version + grid + seed + config hash in every output. Fixed-order reductions. CI: rerun determinism test (same hash), checkpoint tests per milestone.
+- Triple versioning: engine_version (Cargo) != snapshot_version (u32 layout) != config_version (TOML [sim] version); every output embeds all three + blake3(canonical TOML) + backend/determinism/adapter/threads. Snapshots: single .lfs file (magic LFS1 + postcard header + body + blake3 + zstd); phylo tree as separate append-only .tree.lfs. CI: CpuOnly rerun hash-equal; GPU within-tol; checkpoint tests per milestone.
 
 ## 12. Performance Budgets (to be measured, tracked in perf/)
-- Target at 10k cells, mid quad-core CPU-only: deep-time ≥1 Myr / wall-sec (tectonics+geochem+eco-lite), climate subcycle ≥10 sim-yr / wall-sec when active, twin-mode full year <5 wall-sec (tunable fidelity). GPU should give 2–5× on stencil kernels. Document actuals; do not promise.
+- Targets at L2, mid quad-core CPU-only (to be replaced by perf/ actuals): deep-time >=1 Myr/wall-s at dt=1kyr with erosion 1:10 (PASS ~2.5 Myr/s typical); climate >=10 sim-yr/wall-s at DAILY dt with EMBM/dynamics-lite (6-hourly only High/GPU preset; 6-hourly FAILS ~4x CPU-only); twin year <5 wall-s daily. GPU 2-5x only fused resident high-ALU kernels; Laplacians ~1.2-2x L2. Staging <=10% step. Measure on reference quad-core before freezing.
 
 ## 13. Milestones & Exit Gates
 - M0 scaffold+globe spike: globe renders flat field; reruns bit-identical.
@@ -253,6 +261,31 @@ pub trait Subsystem {
 pub struct Coupler { order: Vec<&'static str>, sync_interval_yr: f64 }
 impl Coupler { pub fn sync(&self, g:&mut Grid)->Result<ConservationReport>; }
 ```
+
+## 20. Determinism & Snapshot Protocol v1.2 (main-agent pass)
+- RNG: per-subsystem `RngStream(tag, seed, step_counter)` via splitmix64; streams versioned (`rng_v1`). No wall-clock / thread-id entropy.
+- Reductions: chunk→fixed-order tree merge (CPU) / workgroup-reduce→ordered host merge (GPU). No atomic-float accumulation.
+- Snapshot header (JSON): `{sim_version, grid, seed, config_hash, mode, t_yr, rng_state, kernel_versions}` + body bincode+zstd. Hash (blake3) of decoded fields stored for `earth-cli check --determinism` (rerun → same hash).
+- CI: `determinism-smoke` (L0, 100 sync ticks, 2 reruns, hash equal) blocks merge.
+
+## 21. CLI & App Protocol v1.2 (sketch)
+```bash
+earth-cli init --mode present --grid L2 --seed 7 --config base.toml
+earth-cli run --steps 1000 --checkpoint-every 100 --out data/runs/run-001/
+earth-cli ensemble --n 64 --param ensemble/lhs.toml --score checkpoint-rmse
+earth-cli check --epoch LGM --run data/runs/run-001/
+earth-cli export --format parquet --layers surf_temp,ice_frac,biomass --out out/
+```
+- GUI↔sim messages (mpsc, never blocks UI):
+```rust
+enum SimCmd { Pause, Resume, StepOnce, SetSpeed(f64), ScrubTo(f64/*yr*/), SetCO2(f64), InjectImpact{lat:f32,lon:f32,d_km:f32}, Reseed(u64) }
+enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:String} }
+```
+- Timeline decimation: store every Nth tick full + every tick globals; scrubber interpolates globals, loads nearest full on pause.
+
+## 22. UQ & Ethics Note v1.2
+- Twin ensembles report mean±P10–P90 bands, never single-line forecasts; document forcing assumptions (SSP-like scenarios table TODO).
+- Civilization outputs labeled *scenario projections, not predictions of human behavior*; no personally identifiable data; no autonomous policy triggers. Deep-future civ collapse paths presented with uncertainty + sensitivity attribution.
 
 ## Appendix A: Open Questions for Next Iterations
 - Spectral vs finite-volume atmos core final choice after M3 perf.
