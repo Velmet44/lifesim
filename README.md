@@ -8,8 +8,8 @@ Public repo: https://github.com/Velmet44/lifesim
 
 ## Status
 - [x] spec v1.0 + v1.1 (checkpoint tolerances, kernel table, config/trait sketches)
-- [x] background reviews gpui/validation/compute/arch integrated (v1.2)
-- [ ] science review pending → v1.3
+- [x] all 5 reviews integrated (v1.3) + adversarial audit 20/20 (v1.4)
+- [x] docs: twin-init, deep-future, field-registry, era-dt, ethics, snapshot, M0 tasks, CI
 - [x] scaffold: Cargo workspace, budgets, manifest, examples, field-registry, era-dt, ethics, CI stubs
 - [ ] M0 scaffold (earth-core grid/time/kernels + GPUI×wgpu spike)
 
