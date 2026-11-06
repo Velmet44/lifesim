@@ -153,6 +153,8 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - **Ensemble tiers:** IC n≥20 · PARAM LHS n≥32 · STOCH n≥10. Deep-time: LHS n≥64 lite-grid L0/L1 + n≥8 L2 confirmation. **Controls (split):** `control-deeptime.toml` = single best trajectory+seed (min S_cal; all M1–M6/G1/G2 gates evaluated on it); `control-twin.toml` = ensemble mean+spread around PARAM-best (all T2/T3/H-c gates on it). Never one file for both estimators.
 - **Scoring:** `z=(m-o)/tol` (log vars: dex), `S=sqrt(sum w·z²/sum w)+λ·D_Maha(theta,prior)`, λ=0.1 with Ledoit-Wolf shrinkage reported; pass iff `S_cal≤1.0` + no range-gate fail + H-c coverage ok; `S_val` reported separately (report-only, no gate). Weights w = T1 column in §16. Publish per-checkpoint z table in CI; cal/val split — val failures documented, no retuning without version bump.
 - **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 requires full T2 (OHC ±30%, Sep ice ±5pp/dec, SLR total 20±5cm, pop ±3%/energy ±10% scenario-labeled) + 1-Gyr soak. M7 blocks M8.
+- **T2 protocol (1900–2025 repro):** prescribed forcings only (G1/A1/S1/V1 tables); metrics: CO₂ annual ±10ppm, ΔT ±0.2K (1850–1900), OHC ±30%, Sep ice ±5pp/dec, SLR 20±5cm total, pop ±3%/energy ±10% (scenario-labeled); obs must lie in 5–95% band; formal table M0.
+- **T3 protocol (20-yr sanity, init 2005 → 2025, IC n≥20):** |bias yr1–5|<0.2K, trend bias<0.05K/dec, RMSE<0.15K drift-corrected, no member drift>0.5K, energy<0.5W/m² decadal, carbon closure<2%, rank-hist χ² p>0.05, coverage 80–95% nominal 90%. Formal table M0.
 - **Forcings:** prescribed Meinshausen GHG + Toohey AOD + SATIRE solar + MACv2 aerosols for H-a/H-b; free civ-emissions runs tagged counterfactual.
 - **Data manifest:** `data/manifest.toml` {url,doi,sha256,version,license,fetched_utc}; CI `--offline` runs on pinned embedded fallbacks, `--online` verifies checksums; never vendor restricted bytes.
 - **Ethics (civs):** SCENARIO-not-forecast labeling, bands-first; no sub-global targeting of civ *outcomes* in exports/scoring (global+4 lat bands; no per-region ranking; cell-level GUI inspection allowed with SCENARIO watermark); collapse scenarios opt-in + banner; deep-future (>10kyr) SPECULATIVE watermark; no infra coupling.
@@ -206,22 +208,22 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - (append entries below as refinements land)
 - v1.4 2026-11-06 ~08:52 UTC: adversarial audit (20 findings) resolved — canonical RNG/snapshot/trait/control/scoring/table; preset table + precedence; staging cap 64MB; DAG-pass decimation; §10 CLI canonical; conservation rel-tols; ethics scoping. Promoted docs/twin-init.md + docs/deep-future.md (ERA5→L2 remap, prescription tables, spin-up gates, H-series wiring, R0–R3 matrix, greenhouse ladder, watermarking).
 
-## 16. Checkpoint Table T1 (normative numbers; method in §8; weights TBD M0 by validation owner)
-| Epoch | Observable | Control-run target | Tolerance (initial) | Gate blocks |
+## 16. Checkpoint Table T1 (normative numbers + weights; method in §8; S uses W column)
+| Epoch | Observable | Control-run target | Tolerance | Gate | W |
 |---|---|---|---|---|
-| 4.54 Ga | accretion energy / magma ocean onset | Tm>1800K global | ±200K | M1 |
-| 4.43 Ga | solidification | crust present, Ts<800K | Ts 400–900K | M1 |
-| 4.30 Ga | oceans | liquid water fraction >30% cells 273–373K | ±15pp | M1 |
-| 3.50 Ga | life present | abiogenesis done, microbial biomass>0 | binary | M5 |
-| 2.45–2.32 Ga | GOE (MIF-S loss) | pO₂ <1e-6 → 1e-6–1e-2 overshoot → <1e-1 hold to NOE | timing ±0.05 Gyr, stage ±1 dex | M4 |
-| 720–635 Ma | Snowball (LEGACY row — superseded by §6.11 probe) | ice-line<25° ≥2kyr, entry 130–40ppm, ≥3/10 members | §6.11 + M4 |
-| 538 Ma | Cambrian radiation | richness 5–20× pre-edge | factor 2 | M5 |
-| 252 Ma | P-T crash | marine biomass -70–-95% under LIP forcing | ±15pp | M6 |
-| 66 Ma | K-Pg chain (AOD>10 >3yr → PAR−90%) | biomass −50–−80% from eco eqns | ±12pp, recovery e-fold <5Myr | M6 |
-| 20 ka | LGM | −120±20 m SLE; NH ice vol 1.5–2.5× preind (ICE-6G) | SLE ±20m | M3 |
-| 1750 | preindustrial | 280ppm CO2, ΔT=0 baseline | ±10ppm | M7 |
-| 2025 | present (annual CO₂; ΔT vs 1850–1900) | 420ppm, +1.1–1.3K | CO₂ ±10ppm, T ±0.2K | M7/M8 |
-| 2×CO2 | ECS Gregory 150-yr + slab eq (pattern-corrected) | AR6 likely 2.5–4.0, best 3.0 | gate 2.0–5.0 + kernel breakdown | M3 |
+| 4.54 Ga | accretion energy / magma ocean onset | Tm>1800K global | ±200K | M1 | 0.5 |
+| 4.43 Ga | solidification | crust present, Ts<800K | Ts 400–900K | M1 | 0.5 |
+| 4.30 Ga | oceans | liquid water fraction >30% cells 273–373K | ±15pp | M1 | 1.0 |
+| 3.50 Ga | life present | abiogenesis done, microbial biomass>0 | binary | M5 | 1.0 |
+| 2.45–2.32 Ga | GOE (MIF-S loss) | pO₂ <1e-6 → 1e-6–1e-2 overshoot → <1e-1 hold to NOE | timing ±0.05 Gyr, stage ±1 dex | M4 | 2.0 |
+| 720–635 Ma | Snowball (LEGACY row — superseded by §6.11 probe) | ice-line<25° ≥2kyr, entry 130–40ppm, ≥3/10 members | §6.11 + M4 | 1.0 |
+| 538 Ma | Cambrian radiation | richness 5–20× pre-edge | factor 2 | M5 | 1.5 |
+| 252 Ma | P-T crash | marine biomass -70–-95% under LIP forcing | ±15pp | M6 | 1.5 |
+| 66 Ma | K-Pg chain (AOD>10 >3yr → PAR−90%) | biomass −50–−80% from eco eqns | ±12pp, recovery e-fold <5Myr | M6 | 1.5 |
+| 20 ka | LGM | −120±20 m SLE; NH ice vol 1.5–2.5× preind (ICE-6G) | SLE ±20m | M3 | 2.0 |
+| 1750 | preindustrial | 280ppm CO2, ΔT=0 baseline | ±10ppm | M7 | 2.0 |
+| 2025 | present (annual CO₂; ΔT vs 1850–1900) | 420ppm, +1.1–1.3K | CO₂ ±10ppm, T ±0.2K | M7/M8 | 3.0 |
+| 2×CO2 | ECS Gregory 150-yr + slab eq (pattern-corrected) | AR6 likely 2.5–4.0, best 3.0 | gate 2.0–5.0 + kernel breakdown | M3 | 3.0 |
 
 Scoring: see §8 canonical (`z`, S, D_Maha + Ledoit-Wolf, S_cal≤1.0 gate, S_val report-only). Weights = T1 column below (TBD values M0, owner validation). Control files per §8 split; publish both + seeds + hashes.
 
