@@ -54,7 +54,7 @@ lifesim/
 ### 5.2 Time Manager
 - Adaptive per-subsystem dt + Coupler phase DAG (not single sync tick). Era regimes map to phase tables (Hadean/Myr, Phanerozoic/kyr, Twin/daily subcycled). Erosion subcycled 1:10.
 - Fast systems (atmos/ocean) subcycle between slow handshakes. Watchdog: CFL/diag checks + conservation audit after every phase; halve dt + retry once then abort with event-log entry (never silent clamp). Checks → auto-dt shrink + log.
-- Deterministic seeded RNG (splitmix64 / xoshiro, versioned streams per subsystem). Two-tier determinism: bitwise-identical only within (version,grid,seed,backend,algo) via fixed-order tiled reductions (never par_iter().sum()); cross-backend CPU vs GPU = statistical equality. RNG per-subsystem blake3->Xoshiro streams.
+- Deterministic seeded RNG (blake3(seed||tag||tick)→Xoshiro256PlusPlus, one stream per subsystem; splitmix64 retired). Two-tier determinism: bitwise-identical only within (version,grid,seed,backend,algo) via fixed-order tiled reductions (never par_iter().sum()); cross-backend CPU vs GPU = statistical equality. RNG per-subsystem blake3->Xoshiro streams.
 - Timeline log: every event {t, type, cell/region, magnitude, cause-chain}.
 
 ### 5.3 Kernel Abstraction (Hybrid CPU/GPU)
@@ -138,7 +138,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 ## 7. Data Pipeline (`earth-io`)
 - Sources: topography/bathymetry (ETOPO/GEBCO-lite resampled), ERA5 climatology for twin init, observed GHG curves, Scotese paleomaps for validation overlays, paleo-CO2/temp syntheses (Foster/Veizer-style compilations), species/biomass baselines.
 - Layers: `fetch` (online w/ cache + checksum) → `embedded` (minimal fallback constants in-repo) → `import` (user NetCDF/CSV/GeoTIFF via pluggable readers).
-- Export: Parquet/CSV primary, NetCDF converter, snapshot format v1 (bincode+zstd + json header with version/seed/grid/mode).
+- Export: Parquet/CSV primary, NetCDF converter (feature-gated), snapshot single-file `.lfs` v1 (magic LFS1 + postcard header + body + blake3 + zstd; see §11/§20; bincode+sidecar-JSON retired).
 - Licensing: track provenance + license per dataset; no redistribution of restricted data; scripts fetch at build/run.
 
 ## 8. Validation & Calibration (research core — v1.2 integrated from validation review)
@@ -206,7 +206,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 | 4.30 Ga | oceans | liquid water fraction >30% cells 273–373K | ±15pp | M1 |
 | 3.50 Ga | life present | abiogenesis done, microbial biomass>0 | binary | M5 |
 | 2.45–2.32 Ga | GOE (MIF-S loss) | pO₂ <1e-6 → 1e-6–1e-2 overshoot → <1e-1 hold to NOE | timing ±0.05 Gyr, stage ±1 dex | M4 |
-| 720–635 Ma | Snowball reachable | ice_frac>80% in perturbed ensemble | binary reachability | M4 |
+| 720–635 Ma | Snowball (LEGACY row — superseded by §6.11 probe) | ice-line<25° ≥2kyr, entry 130–40ppm, ≥3/10 members | §6.11 + M4 |
 | 538 Ma | Cambrian radiation | richness 5–20× pre-edge | factor 2 | M5 |
 | 252 Ma | P-T crash | marine biomass -70–-95% under LIP forcing | ±15pp | M6 |
 | 66 Ma | K-Pg chain (AOD>10 >3yr → PAR−90%) | biomass −50–−80% from eco eqns | ±12pp, recovery e-fold <5Myr | M6 |
