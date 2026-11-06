@@ -1,0 +1,52 @@
+# control-run.toml — frozen best-fit params (see spec §8). Scores + holdout status recorded.
+[meta]
+version = 1
+sim_version = "0.x"
+grid = "L2"
+mode = "formation"
+seed = 42
+config_hash = "sha256:TODO"
+created_utc = "TODO"
+scorer = "checkpoint-rmse v1"
+
+[params.tectonics]
+plates = 12
+euler_drift = 0.05
+
+[params.atmos]
+ecs_proxy_K = 3.0
+albedo_ice = 0.6
+cloud_forcing = 1.0
+
+[params.geochem]
+weathering_k = 1.0
+weathering_Te = 13.7
+outgas_scale = 1.0
+
+[params.bio]
+trait_dim = 32
+mutation = 0.001
+hazard = 0.000001
+
+[params.civs]
+enabled = "auto"
+tech_cap = 3.0
+
+[priors]
+weathering_k = [0.3, 3.0]
+outgas_scale = [0.5, 2.0]
+ecs_proxy_K = [2.0, 4.5]
+
+[ensemble]
+n_lite = 64
+n_confirm_L2 = 8
+method = "lhs"
+emulator = "gp"
+
+[scores]
+S_cal = 0.0
+coverage_Hc = 0.0
+
+[holdout]
+Hc_tuned = false
+frozen = true

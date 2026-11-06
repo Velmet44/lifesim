@@ -1,0 +1,20 @@
+# lifesim.toml v1 — versioned, hashed into outputs (see spec §10/§18)
+[meta]
+config_version = 1
+mode = "formation"   # formation|present|forward
+seed = 42
+grid = "L2"          # L0|L1|L2|L3 (grid derived from preset; see spec §P10)
+
+[time]
+t_start_yr = -4540000000.0
+t_end_yr = 0.0
+dt_policy = "era_adaptive"
+
+[device]
+policy = "auto"      # auto|cpu_only|gpu_preferred|hybrid
+staging_mb = 256
+
+[output]
+snapshot_every = 10
+scalar_every = 1
+out_dir = "runs/run-001"
