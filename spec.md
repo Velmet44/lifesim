@@ -1,6 +1,6 @@
 # LifeSim / Earth Simulator — Specification v1.1
 **Status:** DRAFT — iterative improvement in progress (background reviewers: science/arch/compute/validation/gpui)
-**Started:** 2026-11-06 07:27 UTC (min 1h → satisfied 08:45 UTC; continuing to science integration) | **Repo:** https://github.com/Velmet44/lifesim (public, commit regularly)
+**Started:** 2026-11-06 07:27 UTC | **Phase 2:** 08:46 UTC → 11:46 UTC (3h refinement, commits ~15min, NO sleep/wait loops) | **Repo:** https://github.com/Velmet44/lifesim
 **Stack:** Rust + GPUI + wgpu | **Default grid:** 10,242 cells (icosphere) | **Purpose:** research-cum-prediction
 
 ## 1. Vision & Purpose
