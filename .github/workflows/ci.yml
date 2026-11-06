@@ -1,0 +1,25 @@
+name: lifesim-ci
+on: [push, pull_request]
+jobs:
+  determinism-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test -p earth-sim --test determinism_smoke -- --nocapture
+      # L0, 100 sync ticks, 2 reruns, blake3(snapshot) equal; GPU job asserts within-tol only
+  checkpoints:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo run -p earth-cli -- check --epoch all --control examples/control-run.toml --ci-artifact scores.json --offline
+  perf-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo bench -p lifesim-perf -- --save-baseline ci
+      # compare vs perf/budgets.toml ±15% warn / ±30% fail
+  offline-fallback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo run -p earth-cli -- run --config examples/lifesim.toml --offline --steps 10
