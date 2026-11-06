@@ -53,12 +53,12 @@ pub fn save_snapshot(
         tick: world.tick,
         t_yr: world.t_yr,
         n: world.grid.n,
-        surf_temp_k: world.fields.surf_temp_k.clone(),
-        sst: world.fields.sst.clone(),
-        ice_frac: world.fields.ice_frac.clone(),
-        pco2_ppm: world.fields.pco2_ppm.clone(),
-        elev_m: world.fields.elev_m.clone(),
-        biomass: world.fields.biomass.clone(),
+        surf_temp_k: world.fields.surf_temp_k.to_vec(),
+        sst: world.fields.sst.to_vec(),
+        ice_frac: world.fields.ice_frac.to_vec(),
+        pco2_ppm: world.fields.pco2_ppm.to_vec(),
+        elev_m: world.fields.elev_m.to_vec(),
+        biomass: world.fields.biomass.to_vec(),
     };
     let body_bytes = postcard::to_stdvec(&body).map_err(|e| SimError::Io(e.to_string()))?;
     let compressed = zstd::encode_all(body_bytes.as_slice(), 3).map_err(|e| SimError::Io(e.to_string()))?;
@@ -104,12 +104,12 @@ pub fn load_snapshot(path: &str) -> SimResult<(SnapshotHeader, World, String)> {
     let mut world = World::fresh(preset, header.seed, &header.mode, body.t_yr);
     world.tick = body.tick;
     world.t_yr = body.t_yr;
-    world.fields.surf_temp_k = body.surf_temp_k;
-    world.fields.sst = body.sst;
-    world.fields.ice_frac = body.ice_frac;
-    world.fields.pco2_ppm = body.pco2_ppm;
-    world.fields.elev_m = body.elev_m;
-    world.fields.biomass = body.biomass;
+    world.fields.surf_temp_k = aligned_vec::AVec::from_slice(64, &body.surf_temp_k);
+    world.fields.sst = aligned_vec::AVec::from_slice(64, &body.sst);
+    world.fields.ice_frac = aligned_vec::AVec::from_slice(64, &body.ice_frac);
+    world.fields.pco2_ppm = aligned_vec::AVec::from_slice(64, &body.pco2_ppm);
+    world.fields.elev_m = aligned_vec::AVec::from_slice(64, &body.elev_m);
+    world.fields.biomass = aligned_vec::AVec::from_slice(64, &body.biomass);
     let _ = (Backend::Cpu, Determinism::Bitwise);
     Ok((header, world, actual.to_hex().to_string()))
 }

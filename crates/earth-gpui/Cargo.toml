@@ -7,6 +7,30 @@ license.workspace = true
 [dependencies]
 earth-core = { path = "../earth-core" }
 earth-kernels = { path = "../earth-kernels" }
+formation = { path = "../formation" }
+solar = { path = "../solar" }
+interior = { path = "../interior" }
+tectonics = { path = "../tectonics" }
+atmos = { path = "../atmos" }
+ocean = { path = "../ocean" }
+ice = { path = "../ice" }
+geochem = { path = "../geochem" }
+bio = { path = "../bio" }
+eco = { path = "../eco" }
+civs = { path = "../civs" }
 blake3.workspace = true
 pollster.workspace = true
 wgpu.workspace = true
+gpui = { workspace = true, optional = true }
+image = { version = "0.25", optional = true }
+smallvec = { version = "1", optional = true }
+
+[features]
+default = []
+# Native gpui window promotion (Path A candidate). Default M0 build ships
+# Path B (render-to-texture); enable with --features gpui-ui (needs network
+# for gpui's dependency tree).
+gpui-ui = ["dep:gpui", "dep:image", "dep:smallvec"]
+
+[dev-dependencies]
+earth-io = { path = "../earth-io" }

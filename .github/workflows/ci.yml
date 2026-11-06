@@ -6,24 +6,37 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: cargo test -p earth-core --test determinism_smoke -- --nocapture
-      # L0, 100 sync ticks, 2 reruns, blake3(snapshot) equal; GPU job asserts within-tol only
+      # L0, 100 sync ticks, 2 reruns, blake3(snapshot) equal; CSR validity + 64B SoA assert included
   path-b-spike:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: cargo test -p earth-gpui --test path_b_spike -- --nocapture
       # Path-B >=2fps L0 CPU-only + golden screenshot hash
+  app-loop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test -p earth-gpui --test app_loop -- --nocapture
+      # UI latency p95 <100ms, keyboard headless playback, timeline <100ms/<200ms
+  gpui-interop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test -p earth-gpui --features gpui-ui --test gpui_image -- --nocapture
+      # Path-B RGBA8 -> gpui::ImageSource::Render (native promotion gate)
   checkpoints:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo run -p earth-cli -- check --epoch preindustrial --offline
+      - run: cargo run -p earth-cli -- check --epoch all --offline --ci-artifact scores.json
   perf-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: cargo test -p earth-kernels --test perf_smoke -- --nocapture
-      # M0 stub; criterion benches + budgets.toml ±15% warn / ±30% fail land M3
+      - run: cargo bench -p earth-kernels -- --quick
+      # benches: kernels/coupler/e2e; compare vs perf/budgets.toml ±15% warn / ±30% fail
   offline-fallback:
     runs-on: ubuntu-latest
     steps:
@@ -35,3 +48,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: cargo tree -i wgpu
       # Tripwire: must show exactly one wgpu version (M0 ships Path-B, single version pinned)
+      # Note: gpui (optional gpui-ui feature) uses blade-graphics, not wgpu — no conflict.

@@ -3,3 +3,11 @@ data/cache/
 *.zst
 .review-*.md
 .DS_Store
+# M0 build artifacts (golden hash stored in test source, not the file)
+/golden-*.ppm
+/crates/earth-gpui/golden-*.ppm
+*.ppm
+/out*.csv
+/ev.csv
+/sc.csv
+runs/

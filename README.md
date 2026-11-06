@@ -12,6 +12,8 @@ Public repo: https://github.com/Velmet44/lifesim
 - [x] docs: twin-init, deep-future, field-registry, era-dt, ethics, snapshot, M0 tasks, CI
 - [x] scaffold: Cargo workspace, budgets, manifest, examples, field-registry, era-dt, ethics, CI stubs
 - [x] M0 scaffold (earth-core grid/time/kernels + GPUI×wgpu spike)
+      - true geodesic CSR (binned, all presets), 64B SoA lanes, threads+latency gates green
+      - `cargo test --workspace` + `cargo test -p earth-gpui --features gpui-ui` (ImageSource interop)
 
 ## Quick links
 - `spec.md` — full specification

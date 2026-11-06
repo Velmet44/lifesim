@@ -35,3 +35,6 @@ rayon = "1.10"
 clap = { version = "4", features = ["derive"] }
 pollster = "0.3"
 wgpu = "22"
+aligned-vec = { version = "0.6", features = ["serde"] }
+criterion = "0.8"
+gpui = "0.2.2"

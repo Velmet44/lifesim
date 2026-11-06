@@ -26,3 +26,16 @@ staging_test_max_us = 100
 warn_pct = 15
 fail_pct = 30
 benches = ["kernels", "coupler", "e2e"]
+
+# M0 measured actuals (release, Windows x64 debug-host; re-baseline on reference quad-core CI).
+# Stub physics only — real M1-M3 physics will move these; budgets above remain gates.
+[measured_m0]
+date = "2026-11-06"
+diffuse_L0_us = 6.65
+diffuse_L1_us = 30.5
+diffuse_L2_us = 97.7
+tiled_sum_L2_us = 21.6
+coupler_L0_deep_time_1kyr_us = 37.8
+coupler_L0_twin_1yr_us = 37.9
+e2e_L0_10kyr_ms = 6.77
+note = "e2e includes L0 Grid::build; stub subsystems (no real physics)"

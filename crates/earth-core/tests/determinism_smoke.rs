@@ -15,6 +15,16 @@ impl Subsystem for Dummy {
 
 fn run_once(seed: u64) -> String {
     let mut world = World::fresh(earth_core::GridPreset::L0, seed, "formation", -4_540_000_000.0);
+    world.fields.assert_aligned();
+    assert_eq!(world.grid.n, 642);
+    // CSR validity: 6 neighbors each, no self-loops, in range.
+    for i in 0..world.grid.n {
+        let nb = world.grid.neighbors(i);
+        assert_eq!(nb.len(), 6, "cell {i} must have 6 neighbors");
+        for j in nb {
+            assert!((*j as usize) < world.grid.n && (*j as usize) != i);
+        }
+    }
     let coupler = Coupler::default_dag(1000.0);
     let mut d = Dummy;
     let mut systems: Vec<&mut dyn Subsystem> = vec![&mut d];

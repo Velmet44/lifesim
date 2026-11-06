@@ -2,6 +2,8 @@ use earth_core::{colormap, World};
 use std::sync::mpsc;
 use std::time::Instant;
 
+pub mod app;
+
 /// GUI<->sim protocol (spec §21). Never blocks UI.
 #[derive(Debug, Clone)]
 pub enum SimCmd {
@@ -210,6 +212,23 @@ impl PathBRenderer {
         let hash = blake3::hash(&px).to_hex().to_string();
         (fps, hash)
     }
+}
+
+/// Path-B → gpui interop (feature `gpui-ui`): wrap an offscreen/CPU RGBA8
+/// frame as a `gpui::ImageSource::Render`, ready for the `gpui::img()` element.
+/// This is the M0 Path-B contract: render-to-texture, then hand gpui an Image.
+/// (Native `gpui::Surface`/Blade promotion only if the day-1 spike demands it;
+///  single-`wgpu`-version gate in CI guards the runtime choice.)
+/// API verified against zed `crates/gpui/src/elements/img.rs`
+/// (`ImageSource::Render(Arc<RenderImage>)`, `RenderImage::new(SmallVec<Frame>)`).
+#[cfg(feature = "gpui-ui")]
+pub fn to_gpui_image_source(rgba: &[u8], w: u32, h: u32) -> gpui::ImageSource {
+    use image::{Frame, ImageBuffer};
+    let buf: ImageBuffer<image::Rgba<u8>, Vec<u8>> =
+        ImageBuffer::from_raw(w, h, rgba.to_vec()).expect("RGBA8 size must be w*h*4");
+    let frame = Frame::new(buf);
+    let render = gpui::RenderImage::new(smallvec::SmallVec::from_elem(frame, 1));
+    gpui::ImageSource::Render(std::sync::Arc::new(render))
 }
 
 pub fn write_ppm(path: &str, rgba: &[u8], w: u32, h: u32) {

@@ -11,3 +11,4 @@ blake3.workspace = true
 postcard.workspace = true
 zstd.workspace = true
 rayon.workspace = true
+aligned-vec.workspace = true

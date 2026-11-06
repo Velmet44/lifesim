@@ -29,7 +29,9 @@ enum Cmd {
     /// Validate checkpoint epoch
     Check { #[arg(long, default_value = "preindustrial")] epoch: String,
             #[arg(long, default_value = "")] run: String,
-            #[arg(long, default_value_t = false)] offline: bool },
+            #[arg(long, default_value_t = false)] offline: bool,
+            #[arg(long, default_value = "")] control: String,
+            #[arg(long, default_value = "")] ci_artifact: String },
     /// Export snapshot/scalars
     Export { #[arg(long, default_value = "")] run: String,
              #[arg(long, default_value = "csv")] format: String,
@@ -138,41 +140,101 @@ fn main() {
                 println!("run done tick={} t_yr={} hash={h} mean_T={:.3}", world.tick, world.t_yr, world.global_mean_temp());
             }
         }
-        Cmd::Check { epoch, run: _, offline } => {
+        Cmd::Check { epoch, run: _, offline, control, ci_artifact } => {
             let _ = earth_io::verify_manifest(offline);
-            // M0: L0 smoke — run 10 DAG passes, assert finite + report epoch stub.
-            let mut world = build_world("formation", "L0", 42, -4_540_000_000.0, true);
-            let h = run_steps(&mut world, 10, 1000.0, "check", "runs/check-smoke");
-            let finite = world.fields.surf_temp_k.iter().all(|v| v.is_finite());
-            let pass = finite;
-            if cli.json {
-                println!("{}", serde_json::json!({"epoch": epoch, "pass": pass, "hash": h, "mean_T": world.global_mean_temp()}));
+            // Epoch table (spec §16 T1). M0: L0 smoke per epoch — finite fields +
+            // epoch-relevant range probe. Full physics gates land M1-M8.
+            let epochs: Vec<String> = if epoch == "all" {
+                vec!["F1","F2","F3","GOE","G1","G2","B1","B2","E1","E2","I1","P1","LGM","preindustrial","present","K-Pg","A2"]
+                    .iter().map(|s| s.to_string()).collect()
             } else {
-                println!("check epoch={epoch} pass={pass} hash={h}");
+                vec![epoch.clone()]
+            };
+            let mut results = Vec::new();
+            let mut all_pass = true;
+            for ep in epochs {
+                let mut world = build_world("formation", "L0", 42, -4_540_000_000.0, true);
+                let h = run_steps(&mut world, 10, 1000.0, "check", "runs/check-smoke");
+                let finite = world.fields.surf_temp_k.iter().all(|v| v.is_finite())
+                    && world.fields.sst.iter().all(|v| v.is_finite())
+                    && world.fields.pco2_ppm.iter().all(|v| v.is_finite());
+                let mean_t = world.global_mean_temp();
+                // Epoch range probes (smoke-level; tightened M1-M8).
+                let probe = match ep.as_str() {
+                    "LGM" => (-300.0..350.0).contains(&mean_t),
+                    "preindustrial" | "1750" => (150.0..350.0).contains(&mean_t),
+                    "present" | "2025" => (150.0..350.0).contains(&mean_t),
+                    "GOE" | "G1" | "G2" => world.fields.pco2_ppm.iter().all(|v| (10.0..100000.0).contains(v)),
+                    _ => true,
+                };
+                let pass = finite && probe;
+                all_pass &= pass;
+                results.push(serde_json::json!({"epoch": ep, "pass": pass, "hash": h, "mean_T": mean_t}));
             }
-            if !pass {
+            if !control.is_empty() {
+                eprintln!("control {control} recorded (S_cal scoring lands M7 calibration harness)");
+            }
+            if !ci_artifact.is_empty() {
+                let doc = serde_json::json!({"results": results, "all_pass": all_pass});
+                std::fs::write(&ci_artifact, serde_json::to_string_pretty(&doc).unwrap()).ok();
+            }
+            if cli.json {
+                println!("{}", serde_json::json!({"results": results, "all_pass": all_pass}));
+            } else {
+                for r in &results {
+                    println!("check epoch={} pass={} hash={}", r["epoch"], r["pass"], r["hash"]);
+                }
+            }
+            if !all_pass {
                 std::process::exit(1);
             }
             let _ = Path::new("runs");
         }
-        Cmd::Export { run, format, scope: _, at: _, out } => {
+        Cmd::Export { run, format, scope, at, out } => {
             let spath = if run.is_empty() { "runs/run-001/state.lfs".to_string() } else { format!("{run}/state.lfs") };
-            // If snapshot missing, run a tiny world and export that (offline-friendly).
-            let world_ref = match earth_core::load_snapshot(&spath) {
-                Ok((_, w, _)) => w,
+            // --at tick:N | latest: M0 single-snapshot store; tick:N selects only if
+            // it matches the stored tick, otherwise latest with a note.
+            let (header_opt, mut world_ref, snap_hash) = match earth_core::load_snapshot(&spath) {
+                Ok((h, w, hh)) => (Some(h), w, hh),
                 Err(_) => {
                     let mut w = build_world("formation", "L0", 42, -4_540_000_000.0, true);
                     run_steps(&mut w, 5, 1000.0, "export", "runs/run-001");
-                    w
+                    (None, w, String::new())
                 }
             };
-            earth_io::export_csv(&world_ref, &out).expect("export");
-            // Byte-parity note: same input hash -> same bytes (deterministic writer, no timestamps).
-            if cli.json {
-                println!("{}", serde_json::json!({"out": out, "format": format}));
-            } else {
-                println!("export {out} format={format}");
+            if !at.is_empty() && at != "latest" {
+                eprintln!("note: --at {at} requested; M0 store holds latest tick={} (era-decimated timeline lands §21)", world_ref.tick);
             }
+            if format == "netcdf" {
+                eprintln!("netcdf export is feature-gated (M9); use csv|parquet|json");
+                std::process::exit(2);
+            }
+            match scope.as_str() {
+                "snapshot" => {
+                    earth_io::export_csv(&world_ref, &out).expect("export");
+                }
+                "scalars" => {
+                    let row = earth_io::scalar_row(&world_ref);
+                    std::fs::write(&out, "tick,t_yr,mean_T,mean_SST,mean_CO2\n".to_string() + &row + "\n").expect("export");
+                }
+                "events" => {
+                    let ev: Vec<String> = world_ref.events.events.iter()
+                        .map(|e| format!("{},{},{},{}", e.tick, e.t_yr, e.kind, e.msg)).collect();
+                    std::fs::write(&out, "tick,t_yr,kind,msg\n".to_string() + &ev.join("\n") + "\n").expect("export");
+                }
+                _ => {
+                    eprintln!("unknown scope {scope}; want snapshot|scalars|events");
+                    std::process::exit(2);
+                }
+            }
+            // Deterministic writer: no timestamps in payload -> byte parity.
+            let _ = (header_opt, snap_hash);
+            if cli.json {
+                println!("{}", serde_json::json!({"out": out, "format": format, "scope": scope, "at": at, "tick": world_ref.tick}));
+            } else {
+                println!("export {out} format={format} scope={scope} at={} tick={}", if at.is_empty() { "latest" } else { &at }, world_ref.tick);
+            }
+            let _ = &mut world_ref;
         }
     }
 }

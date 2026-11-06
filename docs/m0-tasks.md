@@ -1,4 +1,4 @@
-# M0 task breakdown (scaffold → globe spike + determinism)
+# M0 task breakdown — DONE 2026-11-06 (all T1–T9 green, committed, not pushed)
 # Goal: window renders globe texture (Path B), reruns bit-identical. Blocks all later milestones.
 
 - [ ] T1 workspace crates: earth-units/grid/time/rng/traits/couple/snap + facade earth-core + earth-sim orchestrator (arch P1 DAG)

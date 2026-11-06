@@ -6,4 +6,27 @@ license.workspace = true
 
 [dependencies]
 earth-core = { path = "../earth-core" }
+aligned-vec.workspace = true
 rayon.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+formation = { path = "../formation" }
+solar = { path = "../solar" }
+interior = { path = "../interior" }
+tectonics = { path = "../tectonics" }
+atmos = { path = "../atmos" }
+ocean = { path = "../ocean" }
+ice = { path = "../ice" }
+geochem = { path = "../geochem" }
+bio = { path = "../bio" }
+eco = { path = "../eco" }
+civs = { path = "../civs" }
+
+[[bench]]
+name = "kernels"
+harness = false
+
+[[bench]]
+name = "coupler"
+harness = false
