@@ -1,4 +1,4 @@
-# LifeSim / Earth Simulator — Specification v1.1
+# LifeSim / Earth Simulator — Specification v1.3
 **Status:** DRAFT — iterative improvement in progress (background reviewers: science/arch/compute/validation/gpui)
 **Started:** 2026-11-06 07:27 UTC | **Phase 2:** 08:46 UTC → 11:46 UTC (3h refinement, commits ~15min, NO sleep/wait loops) | **Repo:** https://github.com/Velmet44/lifesim
 **Stack:** Rust + GPUI + wgpu | **Default grid:** 10,242 cells (icosphere) | **Purpose:** research-cum-prediction
@@ -73,17 +73,18 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 ## 6. Subsystems
 
 ### 6.1 Solar / Astro (`solar`)
-- Solar luminosity L(t)=L0/(1+0.4*(1-t/t0)) approx (Gough 1981) + user override.
-- Orbit: eccentricity/obliquity/precession (Berger/Laskar-lite or prescribed Milankovitch cycles in twin/Quaternary mode).
-- Lunar recession → day length + tides (affects mixing param).
+- Luminosity (Gough 1981, τ = Gyr since ZAMS, τ⊙ = 4.57): `L(τ) = L⊙ / (1 + 0.40·(1 − τ/τ⊙))`, L⊙ = 3.828e26 W (TSI₀ = 1361 W/m²). Lookback: `L(t_lb) = L⊙ / (1 + 0.40·t_lb/τ⊙)`. Valid τ ∈ [0,8] Gyr; beyond τ⊙+1 Gyr blend to Bahcall+2001 track via override table (no linear extrapolation past +1.5 Gyr). Checks: L(4.38Ga)=0.728±0.01 L⊙; L(2.5Ga)=0.821±0.015; dL/dt|₀=+0.087±0.01 L⊙/Gyr.
+- Spectrum: EUV/XUV `F_EUV(t) = F_EUV,₀·(t/4.57Gyr)^(−1.2±0.2)`, t≥0.1 Gyr (Ribas+2005; Tu+2015), saturates 100× modern below 0.1 Gyr → feeds H-escape (geochem) + magnetopause (interior).
+- Orbit: Berger (1978) / Laskar+2004 lite — ecc 95/125/400 kyr, obliquity 41 kyr (22.1–24.5°), precession 19/23 kyr. Quaternary phase error < ±2 kyr (41 kyr band), amplitude ±10%.
+- Lunar: tidal `da/dt` anchored to LLR 3.83 cm/yr; day length from angular-momentum conservation (Hadean day 5–8 h; 2.45 Ga 16–18 h). Tidal mixing κ_tide ∝ a^(−3), normalized to Munk-Wunsch 1–2 TW.
 
 ### 6.2 Formation (`formation`)
 - 4.56–4.45 Gya: planetesimal accretion energy + giant impacts (Theia as scripted energy injection w/ seed jitter) → magma ocean (1000–2000K) → solidification + outgassing (H2O/CO2) → first crust.
 - Output: initial T field, volatile inventory, magma-ocean solidification time checkpoint (~4.43 Gya).
 
 ### 6.3 Interior / Mantle (`interior`)
-- 0-D/1-D parameterized convection: mantle temp Tm, heat flux Q = k*(Tm-Ts)^n, radiogenic decay (U/Th/K).
-- Tracks core dynamo on/off → magnetosphere flag (atmos escape modifier).
+- Parameterized convection (Schubert-Turcotte-Olson; Davies): `Q = Q₀·(Tm/Tm₀)^(1+β)·(η(Tm₀)/η(Tm))^β`, β=0.30±0.05, η(Tm)=η₀·exp(A·(1/Tm−1/Tm₀)), A≈3e4 K. Anchor Q₀=47±2 TW (Davies & Davies 2010), Tm₀=1620±50 K potential T (Herzberg). Radiogenics H(t)=Σ H₀,i·exp(−λᵢ·t_lb): ²³⁸U/²³⁵U/²³²Th/⁴⁰K (McDonough & Sun 1995 BSE); Hadean Q ≈ 3–5× present.
+- Dynamo (Stevenson 2003; Loper): on iff Q_cmb > Q_ad (5–15 TW) AND Rm=μ₀σvL > 40; report dipole M (present 7.8e22 A·m²) + magnetopause R_mp (≈10 R_e modern), not binary flag. Escape: Jeans λ_esc + EUV hydrodynamic branch (Erkaev/Owen), XUV-saturated pre-3.5 Ga.
 
 ### 6.4 Tectonics (`tectonics`)
 - Semi-rigid plates: N plates (8–14 major + micro), Euler poles evolving via mantle-torques + slab-pull param.
@@ -98,24 +99,30 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Subcycled dt hours–days; time-averaged to coupling tick.
 
 ### 6.6 Ocean (`ocean`) + Ice (`ice`)
-- 2-layer / shallow-water + thermohaline box-param (AMOC strength ∝ density gradient), wind-driven gyres from atmos stress.
-- SST/SSS advection-diffusion, MLD diagnostic, sea-ice thermodynamics (Semtner 0-layer), land ice sheets (SIA-lite for glacial cycles).
-- Milankovitch + CO2 must produce ~100kyr/41kyr glacial cyclicity in Quaternary test.
+- AMOC (Stommel 1961 two-box + Rooth): `ψ = k_ψ·(β·ΔS − α·ΔT) + ψ_wind`, k_ψ → 16–18 Sv preindustrial (Lumpkin & Speer); hysteresis required (bistable under FWF 0.05–0.3 Sv). Wind gyres via Sverdrup `β·V = curl(τ_wind)/ρ₀`.
+- SST/SSS advection-diffusion, MLD diagnostic, Semtner 0-layer sea ice (enthalpy flux-form across subcycle handshake for conservation audit).
+- Ice sheets: Glen n=3 SIA + Weertman sliding + isostatic τ≈3–5 kyr (Peltier VM5a) + Schoof (2007) grounding-line flux (MISI). LGM target: −120±20 m SLE, NH ice 1.5–2.5× preindustrial volume (ICE-6G).
+- Quaternary test (Ganopolski/Abe-Ouchi class): 41 kyr pre-MPT (2.6–1.2 Ma) → ~100 kyr post-MPT (spectral peak 80–120 kyr + sawtooth) with regolith-removal + dust (α_dust +0.02–0.05). Orbit+CO₂-only runs EXPECTED to fail MPT (negative control); orbital termination phase tol ±5 kyr, amplitude ±30 m SLE.
 
 ### 6.7 Geochemistry (`geochem`)
-- Carbon cycle: atmos-ocean-biosphere box + silicate weathering feedback F_w = k * runoff * exp((T-T0)/Te) * veg_factor; carbonate burial, volcanic outgassing from tectonics/LIPs.
-- Oxygen: burial - weathering + H escape; must allow GOE ~2.4 Ga when cyanobacteria + sinks align.
-- Nutrients P as limiting; track pH/alkalinity crudely for ocean acidification in twin mode.
+- Silicate weathering (continental, Walker-Urey-WHK, area-integrated): `F_sil = k_sil·f_land·(R/R₀)^α·(pCO₂/pCO₂,₀)^β·exp((T−T₀)/Te)·f_veg`, α=0.5±0.2, β=0.25±0.1, Te=13.7±2 K, f_veg=1 abiotic → 2–4 vascular (Devonian+). k_sil → preindustrial F_sil=6–9 Tmol C/yr at 280 ppm/288 K.
+- Seafloor weathering (required, Sleep & Zahnle 2001 / KT15): `F_sea = k_sea·(Q/Q₀)^m·(pCO₂/p₀)^γ·exp(−E_sea/RT_pore)`, m=0.5–1.0, γ=0.2–0.4, modern F_sea=1–4 Tmol C/yr. Dominates when f_land<0.1.
+- Outgassing: `F_out = F_out,₀·(Q/Q₀)^n_out·(1+LIP(t)/F_out,₀)`, F_out,₀=6–10 Tmol C/yr, n_out=0.5–1.0. Carbonate burial = sink at steady state; CCD/pH from rebuilt alkalinity+DIC (Zeebe & Wolf-Gladrow K1/K2(T,S)).
+- Oxygen (redox-closed, Catling & Kasting Ch.10–13): `dO₂/dt = f_org·F_C,burial − (F_red + F_met + F_esc)`, f_org≈0.15–0.25; F_red scales to F_out with mantle fO₂ evolution; H-escape from EUV + cold-trap. GOE gate: MIF-S loss (Δ³³S<0.1‰) 2.45–2.32 Ga; pO₂ <1e-6 PAL → 1e-6–1e-2 overshoot (±1 dex stage boundaries, timing ±0.05 Gyr) → Proterozoic hold <1e-1 PAL until NOE ≥0.8 Ga.
+- Validation: preindustrial 280±5 ppm (calibration); Archean steady state pCO₂ 1e3–1e5 ppm at T 270–300 K; Phanerozoic GEOCARB track ±0.5 dex.
+- Nutrients P (+Fe marine) Liebig-limiting; pH/alkalinity for twin acidification.
 
 ### 6.8 Life / Evolution (`bio`)
-- Abiogenesis gate: requires liquid water + T 273–373K + hydrothermal/pond habitat + reducing→neutral chemistry; hazard rate per suitable cell per Myr; seeded. Expected window 4.0–3.5 Ga in control run.
-- Genome: trait vector (e.g., 16–64 dims: T_opt, pH_opt, photosyn flag, O2 tolerance, size, etc.) + neutral barcode. Mutation + selection (fitness = environment match * competition).
-- Speciation: allopatric (isolation) + adaptive radiation when empty niches open post-extinction. Phylogenetic tree persisted (parent links, divergence t, extinction t).
-- Major transitions as threshold unlocks: anoxygenic photo → oxygenic (Great Oxidation linkage), eukaryogenesis (rare, O2-gated), multicellularity, land colonization (O3-shield-gated).
+- Abiogenesis (staged gate, all required per cell): (i) liquid water a_w>0.6, 280≤T≤340 K sustained ≥10 kyr; (ii) habitat: alkaline-vent ΔpH≥2 (Russell) OR subaerial wet–dry cycling (Damer-Deamer); (iii) redox: pH₂>1e-4 bar or Fe²⁺>1e-6 mol/kg (HCN/formamide proxy; Sutherland/Patel); (iv) UV/impact frustration: no D>100 km sterilizing reset within 1 Myr, surface UV<1e3× modern if subaerial.
+- Hazard: `λ = λ₀·f_hab` per suitable-cell/Myr, λ₀=1e-4–1e-2 log-uniform LHS, calibrated so P(first success ∈ [4.0,3.5] Ga)=50–95% (publish N_suit(t) curve + impact-reset log; reject λ₀ with P>99% before 4.3 Ga or P<5% by 3.5 Ga). Bounds: 4.1 Ga Bell / 3.7 Ga Nutman / 3.5 Ga Schopf (contested flags).
+- Genome: trait vector (16–64 dims) + neutral barcode. Fitness (Sharpe-Schoolfield TPC): `w = w_max·g(T;T_opt,CT_min,CT_max)·h(pH,O₂,UV)·(1−Σ α_ij N_j/K_i)`; mandatory trade-offs (O₂-tolerance ↔ anaerobe growth Δr≥10%; phototrophy ↔ nutrient half-sat +50%).
+- Speciation: allopatric + post-extinction radiation; persistent tree (parent, birth, death).
+- Transitions (O₂ in PAL): oxygenic photo (Mn-cluster proxy, local oases pre-GOE); eukaryogenesis rare (λ_euk≤1e-3× speciation, O₂≥1e-3 PAL 10 Myr); land (column O₃≥50% modern ⇔ O₂≥1e-2 PAL 10 Myr mean; Berkner-Marshall/Ratner-Walker/Kasting).
 
 ### 6.9 Ecosystems (`eco`)
-- Per-cell biomass pools by functional group (producers/consumers/decomposers marine/terrestrial), NPP = f(PAR,T,water,nutrients,CO2 fertilize), consumption Lotka-Volterra-lite + carrying capacity.
-- Dispersal between neighbors. Collapse cascades when NPP crash or T excursion > tolerance → extinction pulse recorded to tree.
+- NPP (per PFT, Liebig minimum): `NPP = ε_max·min(L(PAR), f_T, f_W, f_N, f_CO₂)·(1−r_auto)`, L=α·PAR/(PAR+K_PAR) (K_PAR≈30–80 W/m²), f_T=TPC as §6.8, f_CO₂=1+β·ln(C/C₀) β=0.3–0.6 (FACE/Norby), ε_max per PFT (C3/C4/microbial/marine).
+- Consumption: Holling-II `C = a·N·P/(1+a·h·N)` (never bare Lotka-Volterra). Dispersal between neighbors.
+- Collapse iff NPP<20% baseline ≥1 kyr OR T outside CT limits ≥90% of range cells → extinction pulse to tree.
 
 ### 6.10 Civilizations (`civs`, dormant until thresholds)
 - Activation requires: high O2, temperate climate, biomass surplus, tech-prereq species traits (tool-use proxy). In cold runs may never trigger or trigger for non-humans — allowed, logged.
@@ -124,8 +131,9 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - Deep-future: tech growth capped by physics + climate feedback (collapse possible).
 
 ### 6.11 Events
-- Types: impacts (size-freq power law + scripted Chicxulub-analog option), LIPs/supervolcanoes (VEI8), superplumes, Snowball bifurcations, anoxic events, biotic innovations, gamma/cosmic (rare).
-- Seeded + reproducible; scripted triggers available for validation (e.g., force 66Ma impactor in test).
+- Types: impacts (size-freq power law + scripted Chicxulub-analog option), LIPs/supervolcanoes (VEI8), superplumes, anoxic events, biotic innovations, gamma/cosmic (rare). Snowball is NEVER injected — emergent only (probe below).
+- Snowball bifurcation probe (Voigt & Abbot 2012; Pierrehumbert; Hoffman & Schrag): runaway declared iff ice-line <25° sustained ≥2 kyr with d(ice-line)/dt<0 at fixed forcing. Sturtian probe: 717 Ma palaeogeography + 0.94 L⊙ + pCO₂ 200→40 ppm; entry required in 130–40 ppm; exit via 0.01–0.1 bar CO₂ over 3–30 Myr. Metric: ice-line latitude + global T + thickness class (thin<2m vs thick>10m). M4 gate: ≥3/10 perturbed members enter AND control has zero spontaneous Snowballs outside 720–635 Ma.
+- Seeded + reproducible; scripted triggers available for validation (e.g., force 66Ma impactor in test). K-Pg chain (Toon): 10 km / 1–3e24 J → AOD>10 for >3 yr → PAR −90%, land T −5–10 K → NPP collapse; biomass −50–−80% must FOLLOW from eco equations, not imposed kill fraction; separate Deccan pre-stress run required.
 
 ## 7. Data Pipeline (`earth-io`)
 - Sources: topography/bathymetry (ETOPO/GEBCO-lite resampled), ERA5 climatology for twin init, observed GHG curves, Scotese paleomaps for validation overlays, paleo-CO2/temp syntheses (Foster/Veizer-style compilations), species/biomass baselines.
@@ -137,7 +145,7 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - **Hindcasts (required):** H-a 1850→2025 (full industrial, prescribed GHG/aerosol/solar/volc), H-b 1900→2020 rolling 20-yr windows every 10yr, H-c 2005→2025 Argo-era holdout (no tuning on H-c). Anomaly baselines stated per test (1850–1900 or 1991–2020).
 - **Ensemble tiers:** IC n≥20 (perturbed IC) · PARAM LHS n≥32 (weathering_k, outgas, albedo, ECS-proxy, AMOC sens) · STOCH seed sweep n≥10. Deep-time: LHS n≥64 lite-grid L0/L1 + n≥8 L2 confirmation of control only; GP emulator + Sobol published. Control = PARAM best + IC mean; report spreads separately.
 - **Scoring:** `z=(m-o)/tol` (log: dex), `S=sqrt(mean(w·z²))+0.1·D_Maha(theta,prior)`; pass iff `S_cal≤1.0` + no range-gate fail + H-c coverage ok. Publish per-checkpoint z table in CI. See §16 T1 weights; cal/val split — val failures documented, no retuning without version bump.
-- **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 blocked on T2 1900–2025 repro (CO2 ±4ppm, ΔT ±0.15K, OHC ±30%, ice trend ±5pp/dec, SLR ±5cm, pop ±3%/energy ±10% scenario-labeled).
+- **Twin gates:** M7 blocked on T3 20-yr sanity (bias<0.2K yr1–5, trend bias<0.05K/dec, RMSE<0.15K, no >0.5K drift, energy <0.5W/m², carbon closure <2%, rank-hist flat, coverage 80–95%); M8 blocked on T2 1900–2025 repro (CO2 420±10ppm — EMBM transport+seasonal error floor, ΔT ±0.2K vs 1850–1900, OHC ±30%, Sep ice ±5pp/dec, SLR total 20±5cm 1900–2025, pop ±3%/energy ±10% scenario-labeled).
 - **Forcings:** prescribed Meinshausen GHG + Toohey AOD + SATIRE solar + MACv2 aerosols for H-a/H-b; free civ-emissions runs tagged counterfactual.
 - **Data manifest:** `data/manifest.toml` {url,doi,sha256,version,license,fetched_utc}; CI `--offline` runs on pinned embedded fallbacks, `--online` verifies checksums; never vendor restricted bytes.
 - **Ethics (civs):** SCENARIO-not-forecast labeling, bands-first; no sub-global targeting (global+4 lat bands max); collapse scenarios opt-in + banner; deep-future (>10kyr) SPECULATIVE watermark; no infra coupling.
@@ -166,12 +174,12 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 - M0 scaffold+globe spike: Path-B globe ≥2fps L0 CPU-only + golden screenshot; CpuOnly rerun hash-equal; single wgpu version. CI: determinism-smoke.
 - M1 solar+formation: Hadean Ts 400–900K post-solidification, oceans >30% cells by 4.3Ga; orbit periods ±1% vs Berger/Laskar. CI: check --epoch F1/F2/F3.
 - M2 tectonics v1: hypsometry bimodal ±15%, monotonic crustal growth; paleomap overlay qualitative review. CI: hypsometry artifact.
-- M3 atmos-ocean-ice: Quaternary 41kyr/100kyr cyclicity; ECS 2.0–4.5K range gate. CI: check --epoch I1/P1.
-- M4 geochem+events: GOE window ±150Myr + log±0.7 in control; Snowball reachable in perturbed ensemble. CI: check G1/G2 (cal/val split).
+- M3 atmos-ocean-ice: Quaternary 41kyr pre-MPT → ~100kyr post-MPT (negative control orbit+CO₂-only must FAIL); ECS Gregory+slab 2.0–5.0K gate (very-likely, AR6), central 2.5–4.0K documented + kernel decomposition (cloud ±0.5 W/m²/K; CRE bias vs CERES ±5 W/m² or ECS claim rejected). CI: check --epoch I1/P1.
+- M4 geochem+events: GOE MIF-S 2.45–2.32 Ga ±0.05 Gyr in control; Snowball entry 130–40 ppm in ≥3/10 perturbed + zero spontaneous outside 720–635 Ma. CI: check G1/G2 (cal/val split).
 - M5 bio: abiogenesis 4.0–3.5Ga in control; Cambrian 5–20× richness spike. CI: check B1/B2.
 - M6 eco/extinctions: LIP → marine -70–-95%; 10km impactor → -50–-80% + recovery e-fold <5Myr. CI: check E1/E2.
 - M7 data+calibration+twin init: warm start within T2 present-day tols; T3 20-yr sanity green (bias/trend/RMSE/conservation/coverage). Blocks M8. CI: H-c holdout.
-- M8 civs+deep-future: T2 1900–2025 repro (CO2 ±4ppm, ΔT ±0.15K); 1-Gyr stability no-crash. CI: check A2 + long soak.
+- M8 civs+deep-future: T2 1900–2025 repro (CO2 ±10ppm, ΔT ±0.2K); 1-Gyr stability no-crash. CI: check A2 + long soak.
 - M9 polish: L3 Real preset, nested regional climate, NetCDF (feature), plugin API, perf trend published.
 
 ## 14. Risks (owner + mitigation + tripwire)
@@ -186,6 +194,8 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 ## 15. Improvement Log
 - v1.0 2026-11-06 07:27 UTC: initial comprehensive draft. Refinement subagents launched.
 - v1.1 2026-11-06 07:33 UTC: main-agent pass — checkpoint tolerances table, kernel/DevicePolicy table, config schemas, trait sketches, repo live at Velmet44/lifesim. Background reviews running.
+- v1.2 2026-11-06 07:34–08:46 UTC: integrated gpui+validation+compute+arch — Path-B M0 render, thread proto, color rules, CLI schemas; H-a/b/c hindcasts, 3-tier ensembles, S scoring, T2/T3 gates, manifest+ethics; corrected memory (1.7MB resident/zstd 300-500KB), resident-GPU + staging<=10%, dt-qualified budgets; facade crates, exact traits, DAG coupling, .lfs snapshots, feature presets; §13/§14 testable gates + tripwires.
+- v1.3 2026-11-06 ~08:50 UTC: integrated science review — pinned Gough τ-form + EUV/lunar equations; WHK+seafloor weathering + redox-closed O₂ with staged GOE gate; emergent Snowball bifurcation probe; Stommel AMOC + hysteresis stack + MPT negative control; Sharpe-Schoolfield fitness + Holling-II + staged abiogenesis λ₀; AR6 ECS gate + widened present-day CO₂ ±10ppm; K-Pg mechanism chain.
 - (append entries below as refinements land)
 
 ## 16. Checkpoint Table (see §8 canonical; legacy v1.1 table kept for traceability — validation reviewer T1 supersedes tolerances/weights)
@@ -195,15 +205,15 @@ trait Kernel { fn name(&self)->&str; fn kind(&self)->KernelKind; fn reads(&self)
 | 4.43 Ga | solidification | crust present, Ts<800K | Ts 400–900K | M1 |
 | 4.30 Ga | oceans | liquid water fraction >30% cells 273–373K | ±15pp | M1 |
 | 3.50 Ga | life present | abiogenesis done, microbial biomass>0 | binary | M5 |
-| 2.40 Ga | GOE | pO2 rise 1e-5→1e-3 PAL order | log ±1 | M4 |
+| 2.45–2.32 Ga | GOE (MIF-S loss) | pO₂ <1e-6 → 1e-6–1e-2 overshoot → <1e-1 hold to NOE | timing ±0.05 Gyr, stage ±1 dex | M4 |
 | 720–635 Ma | Snowball reachable | ice_frac>80% in perturbed ensemble | binary reachability | M4 |
 | 538 Ma | Cambrian radiation | richness 5–20× pre-edge | factor 2 | M5 |
 | 252 Ma | P-T crash | marine biomass -70–-95% under LIP forcing | ±15pp | M6 |
-| 66 Ma | K-Pg | biomass -50–-80% under 10km impactor | ±15pp | M6 |
-| 20 ka | LGM ice | land-ice extent 1.5–2.5× preind (N.Hemi) | ±30% | M3 |
+| 66 Ma | K-Pg chain (AOD>10 >3yr → PAR−90%) | biomass −50–−80% from eco eqns | ±12pp, recovery e-fold <5Myr | M6 |
+| 20 ka | LGM | −120±20 m SLE; NH ice vol 1.5–2.5× preind (ICE-6G) | SLE ±20m | M3 |
 | 1750 | preindustrial | 280ppm CO2, ΔT=0 baseline | ±10ppm | M7 |
-| 2025 | present | ~420ppm, ΔT ~+1.1–1.3K vs 1850–1900 | CO2 ±5ppm, T ±0.2K | M7/M8 |
-| 2×CO2 | ECS diagnostic | 2.0–4.5K | range gate | M3 |
+| 2025 | present (annual CO₂; ΔT vs 1850–1900) | 420ppm, +1.1–1.3K | CO₂ ±10ppm, T ±0.2K | M7/M8 |
+| 2×CO2 | ECS Gregory 150-yr + slab eq (pattern-corrected) | AR6 likely 2.5–4.0, best 3.0 | gate 2.0–5.0 + kernel breakdown | M3 |
 
 Scoring: weighted RMSE in normalized units; control-run = min score over LHS ensemble (n≥64 deep-time-lite, n≥20 twin). Publish `control-run.toml` + seed + hash.
 
@@ -246,7 +256,7 @@ Memory re-check (10,242 cells): 40 f32 fields ≈ 40*10k*4B ≈ 1.6MB resident; 
 [atmos] core="embm+dycore-lite" rad_bands=8 clouds="rh-diag"
 [ocean] layers=2 amoc_sens=1.0
 [geochem] weathering_k=1.0 outgas_scale=1.0
-[bio] trait_dim=32 mutation=1e-3 abiogenesis_hazard=1e-6
+[bio] trait_dim=32 mutation=1e-3 abiogenesis_lambda0_per_cell_Myr=3e-4 # LHS 1e-4..1e-2 (replaces uncalibrated 1e-6)
 [eco] dispersal=0.05
 [civs] enabled="auto" tech_cap=3.0
 [data] fetch="auto" cache="data/cache" embedded_fallback=true
@@ -289,10 +299,31 @@ enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:Strin
 - Twin ensembles report mean±P10–P90 bands, never single-line forecasts; document forcing assumptions (SSP-like scenarios table TODO).
 - Civilization outputs labeled *scenario projections, not predictions of human behavior*; no personally identifiable data; no autonomous policy triggers. Deep-future civ collapse paths presented with uncertainty + sensitivity attribution.
 
+## 23. Additional Validation Protocols (from science review §3)
+1. Faint-young-Sun closure: Archean control holds 270–300 K at L≈0.72–0.82 L⊙ via pCO₂ 1e3–1e5 ppm + CH₄ 10–1000 ppm (no prescribed T); report (L,pCO₂,CH₄,T) quad; fail = hand-tuned global albedo outside [0.25,0.35].
+2. Carbonate audit: every geochem handshake |sources−sinks| <1% throughput; pH 6.5–8.5 Phanerozoic / 6.0–8.0 Archean (Halevy & Bachan); publish K1/K2(T,S) table version.
+3. MIF-S proxy: Δ³³S >0.3‰ pre-2.45 Ga → <0.1‰ post-2.32 Ga; midpoint ±0.05 Gyr.
+4. Hysteresis diagram: small-ice-cap instability + Snowball bifurcation as T vs pCO₂ with two stable branches (Budyko-Sellers 1-D EBM cross-check before 3-D claim).
+5. MPT spectrum: Lomb-Scargle of ice-volume analog shows 41 kyr dominance 2.0–1.2 Ma → 80–120 kyr 0.8–0 Ma (p<0.05); orbit+CO₂-only negative control must NOT pass.
+6. AMOC bistability: hosing 0.1/0.2/0.3 Sv ×500 yr recovery-vs-collapse map; present ψ=16–18±3 Sv (RAPID).
+7. Abiogenesis N_suit(t) curve + impact-reset log published; control P-window 50–95%.
+8. Phylogeny sanity: post-K-Pg doubling ≤5 Myr; Cambrian 5–20× over ≤30 Myr; P-T marine loss 70–95% under Traps-class forcing (Burgess: CO₂+warming+anoxia).
+9. Score conditioning: Ledoit-Wolf shrinkage reported for D_Maha; S_cal and S_val reported separately; split `control-deeptime.toml` (single trajectory+seed) vs `control-twin.toml` (ensemble mean+spread).
+
+## 24. Cross-Subsystem Couplings (wire before M3–M5)
+- EUV → H-escape → O₂ net; L+orbit → insolation → wind stress → AMOC/greyre mixing (κ_tide from lunar a).
+- Q_cmb → plate speeds v∝(Q/Q₀)^γ γ≈0.5–1 (Conrad & Lithgow-Bertelloni) → outgassing + orogeny weathering pulses (Raymo-Ruddiman) → CO₂ → ice entry.
+- Palaeogeography → ocean gateways (Drake/Tasman/Panama switches) + spreading-rate seafloor weathering; LIP(t) → SO₂/aerosol + CO₂ pulse → eco collapse.
+- O₂ → O₃ column (Kasting photochemistry lookup) → UV mortality + land gate; O₂ → CH₄ lifetime (CH₄∝1/OH(O₂)) → Archean greenhouse.
+- Burial f_org ↔ DIC/Alk + O₂ source; NPP ↔ weathering f_veg (2–4× at root/vascular/myco innovations).
+- Ice → sea level → shelf area → burial/weathering area + albedo; dust ↔ radiation + ocean Fe fertilization.
+- Impacts/LIPs → stratospheric AOD (Toohey, e-fold 1–3 yr) → T + MLD + PAR; anoxia (P-input × stratification) → selective extinction.
+
 ## Appendix A: Open Questions (status 08:46 UTC, phase 2)
 - [DECIDED v1.2] Atmos core: start EMBM + dynamics-lite finite-volume; T21 spectral only if M3 perf demands (see §5.3).
 - [DECIDED v1.2] Phylo tree: flat append-only `.tree.lfs` sidecar (parent/birth/death), not newick+sqlite per-tick.
 - [DECIDED v1.2] UQ: twin EnKF/particle with rank-histogram + coverage gates; deep-time LHS + GP emulator + Sobol.
 - [DECIDED v1.2] Embedded fallbacks pinned in `data/manifest.toml` (means + gradients + splines, §8 + manifest).
-- [PENDING science retry] Solar L(t) exact form + faint-young-sun handling; weathering Te + veg factor form; GOE trigger thresholds; Snowball entry forcing; abiogenesis hazard calibration.
+- [DONE v1.3] Solar τ-form + EUV/lunar; WHK β/Te + seafloor; staged GOE; Snowball 130–40ppm probe; abiogenesis λ₀ LHS.
+- [PENDING M0] Field-registry value sign-off; conservation rel-tols; WGSL entry-point inventory.
 - [PENDING M0] Field-registry value ranges final sign-off; conservation rel-tols per quantity; WGSL entry-point + workgroup inventory.

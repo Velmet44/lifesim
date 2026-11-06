@@ -26,7 +26,7 @@ outgas_scale = 1.0
 [params.bio]
 trait_dim = 32
 mutation = 0.001
-hazard = 0.000001
+abiogenesis_lambda0_per_cell_Myr = 3e-4 # LHS 1e-4..1e-2
 
 [params.civs]
 enabled = "auto"
@@ -45,6 +45,7 @@ emulator = "gp"
 
 [scores]
 S_cal = 0.0
+S_val = 0.0
 coverage_Hc = 0.0
 
 [holdout]
