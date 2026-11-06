@@ -319,6 +319,16 @@ enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:Strin
 - Ice → sea level → shelf area → burial/weathering area + albedo; dust ↔ radiation + ocean Fe fertilization.
 - Impacts/LIPs → stratospheric AOD (Toohey, e-fold 1–3 yr) → T + MLD + PAR; anoxia (P-input × stratification) → selective extinction.
 
+## 25. Glossary (abbreviations used in gates)
+PAL (present atmospheric level, O₂=0.21 bar) · SLE (sea-level equivalent, m) · MPT (Mid-Pleistocene Transition ~0.9 Ma) · EMBM (energy-moisture-balance model) · SIA (shallow-ice approximation) · MISI (marine-ice-sheet instability) · ECS (equilibrium climate sensitivity, Gregory 150-yr + slab) · LHS (Latin hypercube) · EnKF (ensemble Kalman filter) · TPC (thermal performance curve, Sharpe-Schoolfield) · PFT (plant functional type) · AOD (aerosol optical depth) · f_org (organic burial fraction) · MIF-S (mass-independent S fractionation, Δ³³S) · GOE/NOE (Great/Neoproterozoic Oxidation Events) · BSE (bulk silicate Earth) · ZAMS (zero-age main sequence) · TSI (total solar irradiance) · LLR (lunar laser ranging) · CRE (cloud radiative effect) · FWF (freshwater flux, Sv) · IC/PARAM/STOCH (ensemble tiers) · H-a/b/c (hindcasts) · L0–L3 (grid presets 642/2562/10242/40962).
+
+## 26. Satisfaction Checklist (stop conditions for the refinement loop)
+- [x] All 5 background reviews landed + integrated (gpui v1.2, validation v1.2, compute v1.2, arch v1.2, science v1.3).
+- [x] Consistency sweep: single story for RNG, snapshots, ECS, CO₂ tols, Snowball, kernels (v1.3.1).
+- [ ] Twin-init + deep-future scratch drafts integrated (workers running).
+- [ ] Adversarial audit integrated.
+- [ ] Wall clock ≥11:46 UTC 2026-11-06 (phase-2 3h window).
+
 ## Appendix A: Open Questions (status 08:46 UTC, phase 2)
 - [DECIDED v1.2] Atmos core: start EMBM + dynamics-lite finite-volume; T21 spectral only if M3 perf demands (see §5.3).
 - [DECIDED v1.2] Phylo tree: flat append-only `.tree.lfs` sidecar (parent/birth/death), not newick+sqlite per-tick.
