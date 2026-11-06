@@ -289,8 +289,10 @@ enum SimEvt { Tick{yr:f64}, Checkpoint(String), Warning(String), Done{hash:Strin
 - Twin ensembles report mean±P10–P90 bands, never single-line forecasts; document forcing assumptions (SSP-like scenarios table TODO).
 - Civilization outputs labeled *scenario projections, not predictions of human behavior*; no personally identifiable data; no autonomous policy triggers. Deep-future civ collapse paths presented with uncertainty + sensitivity attribution.
 
-## Appendix A: Open Questions for Next Iterations
-- Spectral vs finite-volume atmos core final choice after M3 perf.
-- Phylogenetic tree storage format (custom vs newick+sqlite).
-- Ensemble UQ method (EnKF vs particle vs simple Gaussian bands for twin).
-- Exact embedded fallback dataset minimal set.
+## Appendix A: Open Questions (status 08:46 UTC, phase 2)
+- [DECIDED v1.2] Atmos core: start EMBM + dynamics-lite finite-volume; T21 spectral only if M3 perf demands (see §5.3).
+- [DECIDED v1.2] Phylo tree: flat append-only `.tree.lfs` sidecar (parent/birth/death), not newick+sqlite per-tick.
+- [DECIDED v1.2] UQ: twin EnKF/particle with rank-histogram + coverage gates; deep-time LHS + GP emulator + Sobol.
+- [DECIDED v1.2] Embedded fallbacks pinned in `data/manifest.toml` (means + gradients + splines, §8 + manifest).
+- [PENDING science retry] Solar L(t) exact form + faint-young-sun handling; weathering Te + veg factor form; GOE trigger thresholds; Snowball entry forcing; abiogenesis hazard calibration.
+- [PENDING M0] Field-registry value ranges final sign-off; conservation rel-tols per quantity; WGSL entry-point + workgroup inventory.
