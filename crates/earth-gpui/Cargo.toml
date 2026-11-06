@@ -1,0 +1,12 @@
+[package]
+name = "earth-gpui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+earth-core = { path = "../earth-core" }
+earth-kernels = { path = "../earth-kernels" }
+blake3.workspace = true
+pollster.workspace = true
+wgpu.workspace = true

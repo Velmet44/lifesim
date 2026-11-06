@@ -1,0 +1,9 @@
+[package]
+name = "interior"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+earth-core = { path = "../earth-core" }
+

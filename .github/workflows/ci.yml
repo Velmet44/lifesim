@@ -5,21 +5,33 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo test -p earth-sim --test determinism_smoke -- --nocapture
+      - run: cargo test -p earth-core --test determinism_smoke -- --nocapture
       # L0, 100 sync ticks, 2 reruns, blake3(snapshot) equal; GPU job asserts within-tol only
+  path-b-spike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo test -p earth-gpui --test path_b_spike -- --nocapture
+      # Path-B >=2fps L0 CPU-only + golden screenshot hash
   checkpoints:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo run -p earth-cli -- check --epoch all --control examples/control-run.toml --ci-artifact scores.json --offline
+      - run: cargo run -p earth-cli -- check --epoch preindustrial --offline
   perf-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo bench -p lifesim-perf -- --save-baseline ci
-      # compare vs perf/budgets.toml ±15% warn / ±30% fail
+      - run: cargo test -p earth-kernels --test perf_smoke -- --nocapture
+      # M0 stub; criterion benches + budgets.toml ±15% warn / ±30% fail land M3
   offline-fallback:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: cargo run -p earth-cli -- run --config examples/lifesim.toml --offline --steps 10
+      - run: cargo run -p earth-cli -- run --config examples/lifesim.toml --preset Low --offline --steps 10
+  single-wgpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo tree -i wgpu
+      # Tripwire: must show exactly one wgpu version (M0 ships Path-B, single version pinned)

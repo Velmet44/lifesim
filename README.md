@@ -11,7 +11,7 @@ Public repo: https://github.com/Velmet44/lifesim
 - [x] all 5 reviews integrated (v1.3) + adversarial audit 20/20 (v1.4)
 - [x] docs: twin-init, deep-future, field-registry, era-dt, ethics, snapshot, M0 tasks, CI
 - [x] scaffold: Cargo workspace, budgets, manifest, examples, field-registry, era-dt, ethics, CI stubs
-- [ ] M0 scaffold (earth-core grid/time/kernels + GPUI×wgpu spike)
+- [x] M0 scaffold (earth-core grid/time/kernels + GPUI×wgpu spike)
 
 ## Quick links
 - `spec.md` — full specification

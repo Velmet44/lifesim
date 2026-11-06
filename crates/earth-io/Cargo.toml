@@ -1,0 +1,12 @@
+[package]
+name = "earth-io"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+earth-core = { path = "../earth-core" }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+blake3.workspace = true

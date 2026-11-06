@@ -1,0 +1,31 @@
+[package]
+name = "earth-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "lifesim"
+path = "src/main.rs"
+
+[dependencies]
+earth-core = { path = "../earth-core" }
+earth-kernels = { path = "../earth-kernels" }
+earth-io = { path = "../earth-io" }
+earth-gpui = { path = "../earth-gpui" }
+formation = { path = "../formation" }
+solar = { path = "../solar" }
+interior = { path = "../interior" }
+tectonics = { path = "../tectonics" }
+atmos = { path = "../atmos" }
+ocean = { path = "../ocean" }
+ice = { path = "../ice" }
+geochem = { path = "../geochem" }
+bio = { path = "../bio" }
+eco = { path = "../eco" }
+civs = { path = "../civs" }
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+blake3.workspace = true
