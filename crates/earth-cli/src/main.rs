@@ -61,7 +61,7 @@ fn build_world(mode: &str, grid_s: &str, seed: u64, t_start: f64, accept_slow: b
     if g == "High" { g = "L2".into(); }
     if g == "Real" { g = "L3".into(); }
     if g == "L3" && !accept_slow {
-        eprintln!("L3 requires --accept-slow on CPU-only M0 (brute-force CSR); falling back to L2");
+        eprintln!("L3 on CPU-only M0/M1: full 40k-cell DAG is slow; set --accept-slow to proceed, else L2");
         g = "L2".into();
     }
     let preset = GridPreset::parse(&g).unwrap_or(GridPreset::L0);
@@ -106,11 +106,13 @@ fn integrate_hadean_to(target_yr: f64, dt_yr: f64, seed: u64, theia_jitter: f64,
 }
 
 fn run_steps(world: &mut World, steps: usize, dt_yr: f64, config_hash: &str, out_dir: &str) -> String {
-    run_steps_with_formation(world, steps, dt_yr, config_hash, out_dir, 42, 0.1, 1.0)
+    run_steps_with_formation(world, steps, dt_yr, config_hash, out_dir, 42, 0.1, 1.0).0
 }
 
 /// Full 11-system DAG integration with explicit formation params.
-/// Returns the snapshot hash.
+/// Returns `(snapshot hash, abort reason)`. On watchdog abort the partial
+/// state is still snapshotted (auditable), and the caller must surface the
+/// reason instead of reporting success.
 fn run_steps_with_formation(
     world: &mut World,
     steps: usize,
@@ -120,7 +122,7 @@ fn run_steps_with_formation(
     seed: u64,
     theia_jitter: f64,
     volatile_h2o: f64,
-) -> String {
+) -> (String, Option<String>) {
     let mut formation = formation::FormationSystem::new(seed, theia_jitter, volatile_h2o);
     let mut solar = solar::SolarSystem;
     let mut interior = interior::InteriorSystem;
@@ -142,9 +144,10 @@ fn run_steps_with_formation(
     ];
     let _ = &coupler;
     // Manual DAG order (same as Coupler::default_dag) with watchdog via Coupler::sync per step.
+    let mut abort: Option<String> = None;
     for _ in 0..steps {
         if let Err(e) = coupler.sync(world, &mut systems, dt_yr) {
-            eprintln!("abort: {e}");
+            abort = Some(format!("{e}"));
             break;
         }
         world.advance_time(dt_yr);
@@ -157,7 +160,7 @@ fn run_steps_with_formation(
     let row = earth_io::scalar_row(world);
     std::fs::write(format!("{out_dir}/scalars.csv"), "tick,t_yr,mean_T,mean_SST,mean_CO2\n".to_string() + &row + "\n").ok();
     let _ = snapshot_hash(world);
-    hash
+    (hash, abort)
 }
 
 fn main() {
@@ -186,7 +189,15 @@ fn main() {
             let (jitter, h2o) = formation_params(&v);
             let mut world = build_world(&mode, &grid_use, seed, t_start, accept_slow);
             let out_dir = "runs/run-001";
-            let h = run_steps_with_formation(&mut world, steps_use, dt, &hash, out_dir, seed, jitter, h2o);
+            let (h, abort) = run_steps_with_formation(&mut world, steps_use, dt, &hash, out_dir, seed, jitter, h2o);
+            if let Some(reason) = abort {
+                if cli.json {
+                    println!("{}", serde_json::json!({"aborted": reason, "tick": world.tick, "t_yr": world.t_yr}));
+                } else {
+                    println!("run aborted at tick={} t_yr={}: {reason}", world.tick, world.t_yr);
+                }
+                std::process::exit(1);
+            }
             if cli.json {
                 println!("{}", serde_json::json!({"hash": h, "tick": world.tick, "t_yr": world.t_yr, "mean_T": world.global_mean_temp()}));
             } else {
