@@ -17,11 +17,42 @@ pub struct Event {
     pub msg: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Totals {
     pub carbon_pg: f64,
     pub water_col_mm: f64,
     pub energy_w_m2: f64,
+    // --- M1 solar state (pinned Gough 1981 track; see solar crate) ---
+    /// Luminosity relative to present (L/L0). Fresh defaults are era-consistent;
+    /// SolarSystem::step overwrites every DAG pass (runs before atmos).
+    pub solar_l_ratio: f64,
+    /// Total solar irradiance at 1 AU, W/m² (1361.0 present).
+    pub tsi_w_m2: f64,
+    /// EUV/XUV flux relative to modern (100× saturated pre-0.1 Gyr).
+    pub euv_ratio: f64,
+    /// Length of day in hours (angular-momentum anchor: 6.5 Hadean → 24 now).
+    pub day_hours: f64,
+    // --- M1 formation state ---
+    /// Year of magma-ocean solidification once detected, else None.
+    pub solidified_yr: Option<f64>,
+    /// Outgassed CO₂ inventory proxy, ppm (volatile_H2O scales target).
+    pub outgassed_co2_ppm: f64,
+}
+
+impl Default for Totals {
+    fn default() -> Self {
+        Self {
+            carbon_pg: 590.0,
+            water_col_mm: 1000.0,
+            energy_w_m2: 0.0,
+            solar_l_ratio: 1.0,
+            tsi_w_m2: 1361.0,
+            euv_ratio: 1.0,
+            day_hours: 24.0,
+            solidified_yr: None,
+            outgassed_co2_ppm: 280.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +86,41 @@ impl World {
         let grid = Grid::build(preset);
         let n = grid.n;
         let mut fields = Fields::zeros(n);
+        // Hadean cold-start: molten surface, no ice/biomass, anoxic thick envelope.
+        // (SolarSystem::step fills era-exact TSI/L on the first DAG pass, which
+        // runs before atmos; the values below are consistent anchors.)
+        if t_start_yr < -4_400_000_000.0 {
+            for i in 0..n {
+                fields.surf_temp_k[i] = 1800.0;
+                fields.atm_t[i] = 1800.0;
+                fields.sst[i] = 1500.0;
+                fields.elev_m[i] = 0.0;
+                fields.ice_frac[i] = 0.0;
+                fields.pco2_ppm[i] = 40000.0;
+                fields.po2_pal[i] = 1e-6;
+                fields.biomass[i] = 0.0;
+                fields.richness[i] = 0.0;
+            }
+            Self {
+                grid,
+                fields,
+                totals: Totals {
+                    solar_l_ratio: 0.72,
+                    tsi_w_m2: 980.0,
+                    euv_ratio: 100.0,
+                    day_hours: 6.5,
+                    solidified_yr: None,
+                    outgassed_co2_ppm: 40000.0,
+                    ..Totals::default()
+                },
+                t_yr: t_start_yr,
+                tick: 0,
+                seed,
+                mode: mode.to_string(),
+                backend: "cpu".to_string(),
+                events: EventLog::new(),
+            }
+        } else {
         // Simple present-day-ish initial pattern: equator warm, poles cold, land mask by lat bands.
         for i in 0..n {
             let lat = grid.lat_deg[i].abs();
@@ -69,13 +135,14 @@ impl World {
         Self {
             grid,
             fields,
-            totals: Totals { carbon_pg: 590.0, water_col_mm: 1000.0, energy_w_m2: 0.0 },
+            totals: Totals::default(),
             t_yr: t_start_yr,
             tick: 0,
             seed,
             mode: mode.to_string(),
             backend: "cpu".to_string(),
             events: EventLog::new(),
+        }
         }
     }
 

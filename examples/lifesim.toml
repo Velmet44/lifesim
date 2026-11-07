@@ -14,6 +14,10 @@ dt_policy = "era_adaptive"
 policy = "auto"      # auto|cpu_only|gpu_preferred|hybrid
 staging_mb = 256
 
+[formation]
+theia_jitter = 0.1   # seed jitter on Theia timing/energy (±10 Myr at 1.0)
+volatile_H2O = 1.0   # Earth oceans; scales outgassed CO2 inventory
+
 [output]
 snapshot_every = 10
 scalar_every = 1

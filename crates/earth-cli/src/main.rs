@@ -68,8 +68,60 @@ fn build_world(mode: &str, grid_s: &str, seed: u64, t_start: f64, accept_slow: b
     World::fresh(preset, seed, &mode, t_start)
 }
 
+fn formation_params(config: &toml::Value) -> (f64, f64) {
+    let jitter = config.get("formation").and_then(|m| m.get("theia_jitter"))
+        .and_then(|s| s.as_float()).unwrap_or(0.1);
+    let h2o = config.get("formation").and_then(|m| m.get("volatile_H2O"))
+        .and_then(|s| s.as_float()).unwrap_or(1.0);
+    (jitter, h2o)
+}
+
+/// Integrate a fresh Hadean world to `target_yr` (no IO). M1 stage workhorse:
+/// cold-start at −4.56 Ga, full 11-system DAG at deep-time dt.
+fn integrate_hadean_to(target_yr: f64, dt_yr: f64, seed: u64, theia_jitter: f64, volatile_h2o: f64) -> World {
+    let mut world = World::fresh(GridPreset::L0, seed, "formation", formation::ACCRETION_START_YR);
+    let coupler = Coupler::default_dag(dt_yr);
+    let mut formation_sys = formation::FormationSystem::new(seed, theia_jitter, volatile_h2o);
+    let mut solar = solar::SolarSystem;
+    let mut interior = interior::InteriorSystem;
+    let mut tectonics = tectonics::TectonicsSystem;
+    let mut atmos = atmos::AtmosSystem;
+    let mut ocean = ocean::OceanSystem;
+    let mut ice = ice::IceSystem;
+    let mut geochem = geochem::GeochemSystem::default();
+    let mut bio = bio::BioSystem;
+    let mut eco = eco::EcoSystem;
+    let mut civs = civs::CivsSystem::default();
+    let mut systems: Vec<&mut dyn earth_core::Subsystem> = vec![
+        &mut formation_sys, &mut solar, &mut interior, &mut tectonics, &mut atmos,
+        &mut ocean, &mut ice, &mut geochem, &mut bio, &mut eco, &mut civs,
+    ];
+    while world.t_yr < target_yr {
+        if coupler.sync(&mut world, &mut systems, dt_yr).is_err() {
+            break;
+        }
+        world.advance_time(dt_yr);
+    }
+    world
+}
+
 fn run_steps(world: &mut World, steps: usize, dt_yr: f64, config_hash: &str, out_dir: &str) -> String {
-    let mut formation = formation::FormationSystem;
+    run_steps_with_formation(world, steps, dt_yr, config_hash, out_dir, 42, 0.1, 1.0)
+}
+
+/// Full 11-system DAG integration with explicit formation params.
+/// Returns the snapshot hash.
+fn run_steps_with_formation(
+    world: &mut World,
+    steps: usize,
+    dt_yr: f64,
+    config_hash: &str,
+    out_dir: &str,
+    seed: u64,
+    theia_jitter: f64,
+    volatile_h2o: f64,
+) -> String {
+    let mut formation = formation::FormationSystem::new(seed, theia_jitter, volatile_h2o);
     let mut solar = solar::SolarSystem;
     let mut interior = interior::InteriorSystem;
     let mut tectonics = tectonics::TectonicsSystem;
@@ -126,14 +178,15 @@ fn main() {
                 eprintln!("manifest: {e}");
                 std::process::exit(1);
             }
-            let (_v, mode, seed, grid_cfg, t_start, hash) = read_config(&config);
+            let (v, mode, seed, grid_cfg, t_start, hash) = read_config(&config);
             let grid_use = if preset.is_empty() { grid_cfg } else { preset };
             let steps_use = if steps == 0 { 10 } else { steps };
             // Era-adaptive dt stub: deep-time 1kyr default; twin 1yr when mode=present.
             let dt = if mode == "present" { 1.0 } else { 1000.0 };
+            let (jitter, h2o) = formation_params(&v);
             let mut world = build_world(&mode, &grid_use, seed, t_start, accept_slow);
             let out_dir = "runs/run-001";
-            let h = run_steps(&mut world, steps_use, dt, &hash, out_dir);
+            let h = run_steps_with_formation(&mut world, steps_use, dt, &hash, out_dir, seed, jitter, h2o);
             if cli.json {
                 println!("{}", serde_json::json!({"hash": h, "tick": world.tick, "t_yr": world.t_yr, "mean_T": world.global_mean_temp()}));
             } else {
@@ -153,7 +206,42 @@ fn main() {
             let mut results = Vec::new();
             let mut all_pass = true;
             for ep in epochs {
-                let mut world = build_world("formation", "L0", 42, -4_540_000_000.0, true);
+                // M1 Hadean stages: real cold-start integration, evaluated against
+                // spec §16 T1 targets (F1/F2/F3). Later milestones own their stages.
+                if matches!(ep.as_str(), "F1" | "F2" | "F3") {
+                    let target = match ep.as_str() {
+                        "F1" => -4_540_000_000.0,
+                        "F2" => -4_430_000_000.0,
+                        _ => -4_300_000_000.0, // F3
+                    };
+                    let world = integrate_hadean_to(target, 100_000.0, 42, 0.1, 1.0);
+                    let finite = world.fields.surf_temp_k.iter().all(|v| v.is_finite())
+                        && world.fields.sst.iter().all(|v| v.is_finite());
+                    let (value, pass, target_s) = match ep.as_str() {
+                        "F1" => {
+                            let (m, p) = formation::evaluate_f1(&world);
+                            (m as f64, p && finite, "Tm>1800K ±200K")
+                        }
+                        "F2" => {
+                            let (m, p) = formation::evaluate_f2(&world);
+                            (m as f64, p && finite, "Ts 400–900K")
+                        }
+                        _ => {
+                            let (f, p) = formation::evaluate_f3(&world);
+                            (f as f64, p && finite, "ocean frac >30%")
+                        }
+                    };
+                    all_pass &= pass;
+                    results.push(serde_json::json!({
+                        "epoch": ep, "pass": pass, "value": value, "target": target_s,
+                        "solidified_yr": world.totals.solidified_yr,
+                        "solar_l": world.totals.solar_l_ratio,
+                    }));
+                    continue;
+                }
+                // Non-F epochs are M3–M8 gates; M0/M1 smoke only asserts finite
+                // fields + range from a present-pattern start (era runs land later).
+                let mut world = build_world("formation", "L0", 42, 0.0, true);
                 let h = run_steps(&mut world, 10, 1000.0, "check", "runs/check-smoke");
                 let finite = world.fields.surf_temp_k.iter().all(|v| v.is_finite())
                     && world.fields.sst.iter().all(|v| v.is_finite())

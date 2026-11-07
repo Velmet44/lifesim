@@ -5,7 +5,7 @@ use std::hint::black_box;
 use earth_core::{Coupler, GridPreset, World};
 
 fn full_systems(world: &mut World, dt_yr: f64) {
-    let mut formation = formation::FormationSystem;
+    let mut formation = formation::FormationSystem::default();
     let mut solar = solar::SolarSystem;
     let mut interior = interior::InteriorSystem;
     let mut tectonics = tectonics::TectonicsSystem;

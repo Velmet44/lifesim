@@ -131,7 +131,7 @@ pub fn run_headless(keys: &[&str], steps: usize) -> (Vec<f64>, u64, Vec<String>)
         let mut world = World::fresh(GridPreset::L0, 42, "formation", -4_540_000_000.0);
         let _ = evt_tx.send(SimEvt::Checkpoint("ready".to_string()));
         let coupler = Coupler::default_dag(1000.0);
-        let mut formation = formation::FormationSystem;
+        let mut formation = formation::FormationSystem::default();
         let mut solar = solar::SolarSystem;
         let mut interior = interior::InteriorSystem;
         let mut tectonics = tectonics::TectonicsSystem;

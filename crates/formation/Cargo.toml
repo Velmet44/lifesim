@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 earth-core = { path = "../earth-core" }
+blake3.workspace = true
 
